@@ -24,6 +24,16 @@ npx skill-sniffer ./skills/foo/SKILL.md --json
 npx skill-sniffer . --min-score 80   # fail CI if any skill scores under 80
 ```
 
+## Local development
+
+```bash
+npm install
+npm run build      # compile src/ -> dist/
+npm test           # vitest
+node bin/skill-sniffer --version
+node bin/skill-sniffer path/to/SKILL.md   # M1: prints `sniffed: <file> 🐕`
+```
+
 ## Why not just use SkillSpector / eslint?
 
 - **SkillSpector** is a heavyweight enterprise vulnerability scanner. skill-sniffer is the 2-second local dog at the door you walk past every day.
@@ -32,7 +42,7 @@ npx skill-sniffer . --min-score 80   # fail CI if any skill scores under 80
 
 ## Status
 
-🚧 Early. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
+🚧 Early. **M1 (scaffold + hello-world) landed** — TS/ESM project, `commander` CLI, `--version`, and a `sniffed: <file> 🐕` stub, with CI (build + test) on Node 18/20/22. Real sniffing rules arrive in M2+. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
 
 ## License
 

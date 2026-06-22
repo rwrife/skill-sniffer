@@ -1,0 +1,53 @@
+{
+  "name": "skill-sniffer",
+  "version": "0.1.0",
+  "description": "An ESLint for the Skills era. Point it at your SKILL.md files; it sniffs out the footguns before your agent eats them.",
+  "keywords": [
+    "skills",
+    "skill.md",
+    "linter",
+    "security",
+    "agents",
+    "prompt-injection",
+    "cli"
+  ],
+  "license": "MIT",
+  "author": "rwrife",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/rwrife/skill-sniffer.git"
+  },
+  "type": "module",
+  "bin": {
+    "skill-sniffer": "bin/skill-sniffer"
+  },
+  "files": [
+    "bin",
+    "dist",
+    "README.md",
+    "PLAN.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "prepublishOnly": "npm run build"
+  },
+  "dependencies": {
+    "commander": "^12.1.0",
+    "fast-glob": "^3.3.2",
+    "gray-matter": "^4.0.3",
+    "picocolors": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.14.0",
+    "typescript": "^5.5.0",
+    "vitest": "^2.0.0"
+  }
+}
