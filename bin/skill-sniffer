@@ -1,0 +1,7 @@
+#!/usr/bin/env node
+// Thin entry point. The real logic lives in the compiled dist/cli.js.
+// Run `npm run build` first; this loads the built output.
+import { run } from "../dist/cli.js";
+
+const code = run(process.argv);
+process.exit(code);
