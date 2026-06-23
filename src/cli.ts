@@ -1,6 +1,9 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import { getVersion } from "./version.js";
+import { discoverSkills } from "./discover.js";
+import { parseSkills } from "./parse.js";
+import type { ParsedSkill } from "./types.js";
 
 /**
  * Build the commander program. Kept as a factory so tests can construct a
@@ -18,30 +21,66 @@ export function buildProgram(): Command {
 
   program
     .argument("[paths...]", "skill file(s) or director(ies) to sniff")
-    .action((paths: string[]) => {
+    .action(async (paths: string[]) => {
       if (!paths || paths.length === 0) {
-        // No paths: show help and exit cleanly. (Real sniffing arrives in M2+.)
+        // No paths: show help and exit cleanly. (Real linting arrives in M3+.)
         program.help();
         return;
       }
 
-      for (const p of paths) {
-        // M1 hello-world behavior. M2 replaces this with real discovery+parse.
-        process.stdout.write(`${pc.cyan("sniffed:")} ${p} 🐕\n`);
+      const files = await discoverSkills(paths);
+      if (files.length === 0) {
+        process.stdout.write(
+          `${pc.yellow("no skills found")} 🐕💨 (looked for SKILL.md / *.skill.md)\n`,
+        );
+        return;
       }
+
+      const skills = await parseSkills(files);
+      reportDiscovered(skills);
     });
 
   return program;
 }
 
 /**
- * Run the CLI. Returns the intended process exit code (0 on success) so the
- * thin bin wrapper and tests can decide what to do with it.
+ * M2 report: list each discovered skill, confirm it parsed, and show a tiny
+ * frontmatter peek. Malformed/unreadable files are flagged but never crash
+ * the run. (M3 replaces this with the real rule-engine report.)
  */
-export function run(argv: string[] = process.argv): number {
+function reportDiscovered(skills: ParsedSkill[]): void {
+  const ok = skills.filter((s) => !s.error).length;
+  const bad = skills.length - ok;
+
+  for (const skill of skills) {
+    if (skill.error) {
+      process.stdout.write(
+        `${pc.red("✗")} ${skill.path} — ${pc.red(skill.error)} 🐕👅\n`,
+      );
+      continue;
+    }
+
+    const keys = Object.keys(skill.frontmatter);
+    const meta =
+      keys.length > 0
+        ? pc.dim(`[${keys.join(", ")}]`)
+        : pc.dim("(no frontmatter)");
+    process.stdout.write(`${pc.green("sniffed:")} ${skill.path} ${meta} 🐕\n`);
+  }
+
+  const summary = `${ok} parsed` + (bad > 0 ? `, ${bad} with problems` : "");
+  process.stdout.write(pc.cyan(`\n${skills.length} skill(s) — ${summary}.\n`));
+}
+
+/**
+ * Run the CLI. Returns the intended process exit code (0 on success) so the
+ * thin bin wrapper and tests can decide what to do with it. Async because the
+ * action performs file discovery + parsing.
+ */
+export async function run(argv: string[] = process.argv): Promise<number> {
   const program = buildProgram();
   try {
-    program.parse(argv);
+    await program.parseAsync(argv);
     return 0;
   } catch (err) {
     process.stderr.write(`${pc.red("error:")} ${(err as Error).message}\n`);

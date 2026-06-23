@@ -2,9 +2,12 @@
  * skill-sniffer 🐕👃
  * Public entry point for the package API.
  *
- * For M1 this just re-exports the CLI runner and version helpers.
- * Later milestones will surface discover/parse/engine/score here.
+ * Surfaces the CLI runner plus the M2 discover/parse primitives.
+ * Later milestones will add engine/score/report here.
  */
 
 export { run } from "./cli.js";
 export { getVersion } from "./version.js";
+export { discoverSkills, looksLikeSkillFile, SKILL_GLOBS } from "./discover.js";
+export { parseSkill, parseSkills } from "./parse.js";
+export type { ParsedSkill } from "./types.js";

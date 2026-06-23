@@ -3,5 +3,5 @@
 // Run `npm run build` first; this loads the built output.
 import { run } from "../dist/cli.js";
 
-const code = run(process.argv);
+const code = await run(process.argv);
 process.exit(code);
