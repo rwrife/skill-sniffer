@@ -16,7 +16,7 @@ describe("skill-sniffer M1 scaffold", () => {
     expect(program.name()).toBe("skill-sniffer");
   });
 
-  it("discovers and reports a real skill file with `sniffed:` + 🐕", async () => {
+  it("sniffs a clean skill file and wags (no findings)", async () => {
     const fixture = join(
       dirname(fileURLToPath(import.meta.url)),
       "fixtures",
@@ -41,8 +41,7 @@ describe("skill-sniffer M1 scaffold", () => {
       process.stdout.write = original;
     }
 
-    expect(out).toContain("sniffed:");
-    expect(out).toContain("SKILL.md");
+    expect(out).toContain("good boy");
     expect(out).toContain("🐕");
   });
 });

@@ -3,7 +3,8 @@ import pc from "picocolors";
 import { getVersion } from "./version.js";
 import { discoverSkills } from "./discover.js";
 import { parseSkills } from "./parse.js";
-import type { ParsedSkill } from "./types.js";
+import { runEngine } from "./engine.js";
+import { renderPretty } from "./report/pretty.js";
 
 /**
  * Build the commander program. Kept as a factory so tests can construct a
@@ -37,39 +38,11 @@ export function buildProgram(): Command {
       }
 
       const skills = await parseSkills(files);
-      reportDiscovered(skills);
+      const report = runEngine(skills);
+      process.stdout.write(renderPretty(report));
     });
 
   return program;
-}
-
-/**
- * M2 report: list each discovered skill, confirm it parsed, and show a tiny
- * frontmatter peek. Malformed/unreadable files are flagged but never crash
- * the run. (M3 replaces this with the real rule-engine report.)
- */
-function reportDiscovered(skills: ParsedSkill[]): void {
-  const ok = skills.filter((s) => !s.error).length;
-  const bad = skills.length - ok;
-
-  for (const skill of skills) {
-    if (skill.error) {
-      process.stdout.write(
-        `${pc.red("✗")} ${skill.path} — ${pc.red(skill.error)} 🐕👅\n`,
-      );
-      continue;
-    }
-
-    const keys = Object.keys(skill.frontmatter);
-    const meta =
-      keys.length > 0
-        ? pc.dim(`[${keys.join(", ")}]`)
-        : pc.dim("(no frontmatter)");
-    process.stdout.write(`${pc.green("sniffed:")} ${skill.path} ${meta} 🐕\n`);
-  }
-
-  const summary = `${ok} parsed` + (bad > 0 ? `, ${bad} with problems` : "");
-  process.stdout.write(pc.cyan(`\n${skills.length} skill(s) — ${summary}.\n`));
 }
 
 /**

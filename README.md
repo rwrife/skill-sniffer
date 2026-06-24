@@ -35,15 +35,25 @@ node bin/skill-sniffer path/to/skills/   # discovers SKILL.md / *.skill.md and p
 ```
 
 Point it at a directory and it recursively discovers every `SKILL.md` and
-`*.skill.md`, parses frontmatter + body, and lists what it found (malformed or
-unreadable files are flagged, never fatal):
+`*.skill.md`, parses frontmatter + body, runs the rule engine, and prints a
+report grouped by file (malformed or unreadable files are flagged, never
+fatal):
 
 ```
 $ node bin/skill-sniffer ./skills
-sniffed: /abs/skills/foo/SKILL.md [name, description] 🐕
-✗ /abs/skills/bar/SKILL.md — malformed frontmatter: … 🐕👅
+/abs/skills/foo/SKILL.md
+  ⚠ warning frontmatter `description` is 355 chars (over 200); trim it to save context tokens (frontmatter)
+/abs/skills/bar/SKILL.md
+  ✗ error  🐕👅 missing required frontmatter field `name` (frontmatter)
 
-2 skill(s) — 1 parsed, 1 with problems.
+2 skill(s) sniffed — 1 error, 1 warning. 🐕👅 growl
+```
+
+A clean run gets a wag:
+
+```
+$ node bin/skill-sniffer ./skills
+🐕 good boy — 3 skill(s) sniffed, no scents found.
 ```
 
 ## Why not just use SkillSpector / eslint?
@@ -58,8 +68,9 @@ sniffed: /abs/skills/foo/SKILL.md [name, description] 🐕
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
+- **M3 — Rule engine + frontmatter rule + report ✅** Pluggable rule engine (`Rule` / `Finding` / `Report` types), the first real rule (`frontmatter`: requires `name` + `description`, warns on overlong descriptions, surfaces malformed YAML), and a terminal report grouped by file with severity colors. A throwing rule is isolated, never fatal.
 
-Real lint rules + the Good Boy Score™ arrive in M3+. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
+More rules (secrets, prompt-injection, token-bloat, broken-paths, tool-scope), the **Good Boy Score™**, `--json`, and CI gates (`--min-score`, `--max-warnings`, non-zero exit) arrive in M4–M6. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
 
 ## License
 
