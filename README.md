@@ -31,7 +31,19 @@ npm install
 npm run build      # compile src/ -> dist/
 npm test           # vitest
 node bin/skill-sniffer --version
-node bin/skill-sniffer path/to/SKILL.md   # M1: prints `sniffed: <file> 🐕`
+node bin/skill-sniffer path/to/skills/   # discovers SKILL.md / *.skill.md and parses each
+```
+
+Point it at a directory and it recursively discovers every `SKILL.md` and
+`*.skill.md`, parses frontmatter + body, and lists what it found (malformed or
+unreadable files are flagged, never fatal):
+
+```
+$ node bin/skill-sniffer ./skills
+sniffed: /abs/skills/foo/SKILL.md [name, description] 🐕
+✗ /abs/skills/bar/SKILL.md — malformed frontmatter: … 🐕👅
+
+2 skill(s) — 1 parsed, 1 with problems.
 ```
 
 ## Why not just use SkillSpector / eslint?
@@ -42,7 +54,12 @@ node bin/skill-sniffer path/to/SKILL.md   # M1: prints `sniffed: <file> 🐕`
 
 ## Status
 
-🚧 Early. **M1 (scaffold + hello-world) landed** — TS/ESM project, `commander` CLI, `--version`, and a `sniffed: <file> 🐕` stub, with CI (build + test) on Node 18/20/22. Real sniffing rules arrive in M2+. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
+🚧 Early.
+
+- **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
+- **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
+
+Real lint rules + the Good Boy Score™ arrive in M3+. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
 
 ## License
 

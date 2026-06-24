@@ -1,4 +1,6 @@
 import { describe, it, expect } from "vitest";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { getVersion } from "../src/version.js";
 import { buildProgram } from "../src/cli.js";
 
@@ -14,7 +16,14 @@ describe("skill-sniffer M1 scaffold", () => {
     expect(program.name()).toBe("skill-sniffer");
   });
 
-  it("prints `sniffed: <file> 🐕` for a given path and exits 0", () => {
+  it("discovers and reports a real skill file with `sniffed:` + 🐕", async () => {
+    const fixture = join(
+      dirname(fileURLToPath(import.meta.url)),
+      "fixtures",
+      "valid",
+      "SKILL.md",
+    );
+
     const program = buildProgram();
     program.exitOverride();
     program.configureOutput({ writeOut: () => {}, writeErr: () => {} });
@@ -27,13 +36,13 @@ describe("skill-sniffer M1 scaffold", () => {
       return true;
     };
     try {
-      program.parse(["node", "skill-sniffer", "foo/SKILL.md"]);
+      await program.parseAsync(["node", "skill-sniffer", fixture]);
     } finally {
       process.stdout.write = original;
     }
 
     expect(out).toContain("sniffed:");
-    expect(out).toContain("foo/SKILL.md");
+    expect(out).toContain("SKILL.md");
     expect(out).toContain("🐕");
   });
 });
