@@ -36,7 +36,9 @@ export function renderPretty(report: Report): string {
 
 /** Format one finding: colored severity badge, message, and rule id. */
 function formatFinding(f: Finding): string {
-  const loc = f.line ? pc.dim(`:${f.line}`) : "";
+  const loc = f.line
+    ? pc.dim(`:${f.line}${f.column ? `:${f.column}` : ""}`)
+    : "";
   return `${badge(f.severity)}${loc} ${f.message} ${pc.dim(`(${f.ruleId})`)}`;
 }
 

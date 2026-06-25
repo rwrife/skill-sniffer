@@ -69,8 +69,21 @@ $ node bin/skill-sniffer ./skills
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
 - **M3 — Rule engine + frontmatter rule + report ✅** Pluggable rule engine (`Rule` / `Finding` / `Report` types), the first real rule (`frontmatter`: requires `name` + `description`, warns on overlong descriptions, surfaces malformed YAML), and a terminal report grouped by file with severity colors. A throwing rule is isolated, never fatal.
+- **M4 — Secret + prompt-injection rules ✅** The headline scents. `secrets` detects high-confidence credential shapes (AWS keys, `sk-…` provider keys, GitHub/Slack/Google tokens, PEM private-key headers, generic `API_KEY=value` assignments) and **redacts** the value in its message; obvious docs placeholders (`sk-xxxx`, `AKIA…EXAMPLE`, `your-api-key`) are ignored to keep false positives near zero. `injection` flags prompt-injection bait ("ignore previous instructions", "you are now…", "disregard your system prompt", exfiltration/guardrail-bypass lines), zero-width/bidi control characters (by codepoint), and agent-directed `<!-- … -->` comments. Findings carry **line + column**.
 
-More rules (secrets, prompt-injection, token-bloat, broken-paths, tool-scope), the **Good Boy Score™**, `--json`, and CI gates (`--min-score`, `--max-warnings`, non-zero exit) arrive in M4–M6. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
+The scary stuff produces error-severity findings with a redacted value and a location:
+
+```
+$ node bin/skill-sniffer ./skills
+/abs/skills/evil/SKILL.md
+  ✗ error  🐕👅:8:1 prompt-injection instruction-override phrase: "Ignore previous instructions" (injection)
+  ✗ error  🐕👅:10:32 possible OpenAI/Anthropic-style secret key leaked: sk-p…••••••Cy (secrets)
+  ✗ error  🐕👅:12:1 hidden right-to-left override (U+202E) in skill text (injection)
+
+1 skill(s) sniffed — 3 errors. 🐕👅 growl
+```
+
+More rules (token-bloat, broken-paths, tool-scope), the **Good Boy Score™**, `--json`, and CI gates (`--min-score`, `--max-warnings`, non-zero exit) arrive in M5–M6. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
 
 ## License
 
