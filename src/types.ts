@@ -55,6 +55,11 @@ export interface Finding {
    * findings (e.g. "frontmatter is missing entirely").
    */
   line?: number;
+  /**
+   * 1-based column number within {@link line}, when known. Only meaningful
+   * alongside `line`; omitted for whole-file or line-only findings.
+   */
+  column?: number;
 }
 
 /**

@@ -77,14 +77,15 @@ function safeRun(rule: Rule, skill: ParsedSkill, ctx: RuleContext): Finding[] {
   }
 }
 
-/** Deterministic ordering: path \u2192 severity (loudest first) \u2192 rule id \u2192 line. */
+/** Deterministic ordering: path \u2192 severity (loudest first) \u2192 rule id \u2192 line \u2192 column. */
 function compareFindings(a: Finding, b: Finding): number {
   if (a.path !== b.path) return a.path < b.path ? -1 : 1;
   if (a.severity !== b.severity) {
     return SEVERITY_RANK[a.severity] - SEVERITY_RANK[b.severity];
   }
   if (a.ruleId !== b.ruleId) return a.ruleId < b.ruleId ? -1 : 1;
-  return (a.line ?? 0) - (b.line ?? 0);
+  if ((a.line ?? 0) !== (b.line ?? 0)) return (a.line ?? 0) - (b.line ?? 0);
+  return (a.column ?? 0) - (b.column ?? 0);
 }
 
 /** Count findings per severity, always returning all keys (zeroed). */
