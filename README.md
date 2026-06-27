@@ -21,7 +21,52 @@ Every file gets a **Good Boy Score™** (0–100). Clean file? Wag. Leaked key? 
 # (once published)
 npx skill-sniffer ./skills
 npx skill-sniffer ./skills/foo/SKILL.md --json
-npx skill-sniffer . --min-score 80   # fail CI if any skill scores under 80
+npx skill-sniffer . --min-score 80    # fail CI if any skill scores under 80
+npx skill-sniffer . --max-warnings 0  # fail CI on any warning
+npx skill-sniffer --init              # write a .skillsnifferrc stub
+```
+
+### Good Boy Score™
+
+Every file starts at **100** and loses points per scent — **error −25**,
+**warning −8**, **info −2** — clamped to `[0, 100]`. The **overall** score is the
+*minimum* across files (a kennel is only as good as its worst-behaved dog), so a
+single nasty skill can't hide behind clean ones in CI.
+
+### CI gates & exit codes
+
+| Exit | Meaning |
+| ---- | ------- |
+| `0`  | clean — no errors and no gate tripped |
+| `1`  | a gate tripped: an `error` finding exists, `--min-score` not met, or `--max-warnings` exceeded |
+| `2`  | bad invocation / internal error |
+
+Warnings and info **never** fail the build on their own — only an `error` finding
+or an explicit `--min-score` / `--max-warnings` gate does. Add `--json` to get a
+stable, schema-versioned report for tooling:
+
+```jsonc
+{
+  "schema": "skill-sniffer/report@1",
+  "version": "0.1.0",
+  "score": 50,                 // overall Good Boy Score™ (min across files)
+  "skillsChecked": 1,
+  "counts": { "error": 2, "warning": 0, "info": 0 },
+  "scores": [{ "path": "…/SKILL.md", "score": 50, "counts": { … } }],
+  "findings": [{ "ruleId": "broken-paths", "severity": "error",
+                 "message": "…", "path": "…", "line": 11, "column": 10 }]
+}
+```
+
+`--init` drops a `.skillsnifferrc` stub (it won't clobber an existing one):
+
+```jsonc
+{
+  "$schema": "skill-sniffer/config@1",
+  "tokenBudget": 2000,   // token-bloat warning budget (chars/4 heuristic)
+  "minScore": 0,         // fail if any skill scores below this (0 disables)
+  "maxWarnings": -1      // fail if total warnings exceed this (-1 disables)
+}
 ```
 
 ## Local development
@@ -64,13 +109,14 @@ $ node bin/skill-sniffer ./skills
 
 ## Status
 
-🚧 Early.
+✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in.
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
 - **M3 — Rule engine + frontmatter rule + report ✅** Pluggable rule engine (`Rule` / `Finding` / `Report` types), the first real rule (`frontmatter`: requires `name` + `description`, warns on overlong descriptions, surfaces malformed YAML), and a terminal report grouped by file with severity colors. A throwing rule is isolated, never fatal.
 - **M4 — Secret + prompt-injection rules ✅** The headline scents. `secrets` detects high-confidence credential shapes (AWS keys, `sk-…` provider keys, GitHub/Slack/Google tokens, PEM private-key headers, generic `API_KEY=value` assignments) and **redacts** the value in its message; obvious docs placeholders (`sk-xxxx`, `AKIA…EXAMPLE`, `your-api-key`) are ignored to keep false positives near zero. `injection` flags prompt-injection bait ("ignore previous instructions", "you are now…", "disregard your system prompt", exfiltration/guardrail-bypass lines), zero-width/bidi control characters (by codepoint), and agent-directed `<!-- … -->` comments. Findings carry **line + column**.
 - **M5 — Token-bloat + broken-path + tool-scope rules ✅** Rounds out the v0.1 ruleset. `token-bloat` estimates token weight (chars/4 heuristic) and warns past a configurable budget (default 2000). `broken-paths` extracts relative file references (markdown links/images + path-shaped inline code), resolves each against the **skill's own directory**, and errors on the ones missing from disk — URLs, anchors, and absolute/home paths are deliberately ignored. `tool-scope` flags wildcard / overly broad tool grants both in frontmatter (`allowed-tools: { exec: "*" }`, bare `*` in arrays) and in prose ("any shell command", "run arbitrary code", "unrestricted access").
+- **M6 — Good Boy Score + JSON + CI gates ✅** Makes it scorable and CI-friendly. `score.ts` turns findings into a **Good Boy Score™** (0–100) per file and overall (the overall is the *minimum* per-file score, so the weakest skill sets the grade). `--json` emits a stable, schema-versioned (`skill-sniffer/report@1`) machine report. CI gates: `--min-score <n>` and `--max-warnings <n>` with proper non-zero exit codes (`0` clean, `1` gate tripped, `2` usage error); errors always fail, warnings/info only fail behind a gate. `--init` writes a `.skillsnifferrc` config stub (never clobbering an existing one).
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -96,7 +142,31 @@ $ node bin/skill-sniffer ./skills
 1 skill(s) sniffed — 2 errors, 1 warning. 🐕👅 growl
 ```
 
-The **Good Boy Score™**, `--json`, and CI gates (`--min-score`, `--max-warnings`, non-zero exit) arrive in M6. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
+Findings roll up into a **Good Boy Score™**, and CI gates turn that into a pass/fail:
+
+```
+$ node bin/skill-sniffer ./skills --min-score 80
+/abs/skills/loose/SKILL.md
+  ✗ error  🐕👅 overly broad tool grant in `allowed-tools`: `exec: *` — scope it to the specific tools the skill needs (tool-scope)
+  ✗ error  🐕👅:11:10 broken local path: `./scripts/missing-tool.sh` does not exist (resolved against the skill's directory) (broken-paths)
+
+1 skill(s) sniffed — 2 errors. 🐕👅 growl
+💩 Good Boy Score™: 50/100
+$ echo $?
+1
+```
+
+A clean run wags and exits `0`:
+
+```
+$ node bin/skill-sniffer ./skills --min-score 80
+🐕 good boy — 3 skill(s) sniffed, no scents found.
+🏅 Good Boy Score™: 100/100
+$ echo $?
+0
+```
+
+See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (`--fix`, config-driven rule toggles, a GitHub Action, SARIF, multi-format support).
 
 ## License
 

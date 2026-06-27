@@ -2,8 +2,8 @@
  * skill-sniffer 🐕👃
  * Public entry point for the package API.
  *
- * Surfaces the CLI runner, the M2 discover/parse primitives, and the M3 rule
- * engine + reporter. Later milestones will add score/JSON here.
+ * Surfaces the CLI runner, the M2 discover/parse primitives, the M3 rule
+ * engine + reporter, and the M6 score, JSON report, and config scaffolding.
  */
 
 export { run } from "./cli.js";
@@ -13,6 +13,13 @@ export { parseSkill, parseSkills } from "./parse.js";
 export { runEngine } from "./engine.js";
 export { rules, getRule, frontmatterRule } from "./rules/index.js";
 export { renderPretty } from "./report/pretty.js";
+export { renderJson, REPORT_SCHEMA } from "./report/json.js";
+export { scoreReport, scoreFindings, PENALTIES, MAX_SCORE } from "./score.js";
+export {
+  writeConfigStub,
+  DEFAULT_CONFIG,
+  RC_FILENAME,
+} from "./init.js";
 export type {
   ParsedSkill,
   Severity,
@@ -20,4 +27,6 @@ export type {
   Rule,
   RuleContext,
   Report,
+  SkillScore,
+  ScoredReport,
 } from "./types.js";
