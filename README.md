@@ -70,6 +70,7 @@ $ node bin/skill-sniffer ./skills
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
 - **M3 — Rule engine + frontmatter rule + report ✅** Pluggable rule engine (`Rule` / `Finding` / `Report` types), the first real rule (`frontmatter`: requires `name` + `description`, warns on overlong descriptions, surfaces malformed YAML), and a terminal report grouped by file with severity colors. A throwing rule is isolated, never fatal.
 - **M4 — Secret + prompt-injection rules ✅** The headline scents. `secrets` detects high-confidence credential shapes (AWS keys, `sk-…` provider keys, GitHub/Slack/Google tokens, PEM private-key headers, generic `API_KEY=value` assignments) and **redacts** the value in its message; obvious docs placeholders (`sk-xxxx`, `AKIA…EXAMPLE`, `your-api-key`) are ignored to keep false positives near zero. `injection` flags prompt-injection bait ("ignore previous instructions", "you are now…", "disregard your system prompt", exfiltration/guardrail-bypass lines), zero-width/bidi control characters (by codepoint), and agent-directed `<!-- … -->` comments. Findings carry **line + column**.
+- **M5 — Token-bloat + broken-path + tool-scope rules ✅** Rounds out the v0.1 ruleset. `token-bloat` estimates token weight (chars/4 heuristic) and warns past a configurable budget (default 2000). `broken-paths` extracts relative file references (markdown links/images + path-shaped inline code), resolves each against the **skill's own directory**, and errors on the ones missing from disk — URLs, anchors, and absolute/home paths are deliberately ignored. `tool-scope` flags wildcard / overly broad tool grants both in frontmatter (`allowed-tools: { exec: "*" }`, bare `*` in arrays) and in prose ("any shell command", "run arbitrary code", "unrestricted access").
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -83,7 +84,19 @@ $ node bin/skill-sniffer ./skills
 1 skill(s) sniffed — 3 errors. 🐕👅 growl
 ```
 
-More rules (token-bloat, broken-paths, tool-scope), the **Good Boy Score™**, `--json`, and CI gates (`--min-score`, `--max-warnings`, non-zero exit) arrive in M5–M6. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
+The token/path/scope scents fire on the obvious footguns:
+
+```
+$ node bin/skill-sniffer ./skills
+/abs/skills/loose/SKILL.md
+  ✗ error  🐕👅 overly broad tool grant in `allowed-tools`: `exec: *` — scope it to the specific tools the skill needs (tool-scope)
+  ✗ error  🐕👅:11:10 broken local path: `./scripts/missing-tool.sh` does not exist (resolved against the skill's directory) (broken-paths)
+  ⚠ warning skill is ~5212 tokens (over the 2000 budget); trim it to save context on every load (token-bloat)
+
+1 skill(s) sniffed — 2 errors, 1 warning. 🐕👅 growl
+```
+
+The **Good Boy Score™**, `--json`, and CI gates (`--min-score`, `--max-warnings`, non-zero exit) arrive in M6. See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and backlog.
 
 ## License
 
