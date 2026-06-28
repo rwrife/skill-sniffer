@@ -24,6 +24,8 @@ npx skill-sniffer ./skills/foo/SKILL.md --json
 npx skill-sniffer . --min-score 80    # fail CI if any skill scores under 80
 npx skill-sniffer . --max-warnings 0  # fail CI on any warning
 npx skill-sniffer --init              # write a .skillsnifferrc stub
+npx skill-sniffer . --fix             # auto-clean the safe stuff in place
+npx skill-sniffer . --fix --dry-run   # preview the cleanup as a diff
 ```
 
 ### Good Boy Score™
@@ -69,6 +71,38 @@ stable, schema-versioned report for tooling:
 }
 ```
 
+### Auto-fix (`--fix`)
+
+`--fix` mechanically cleans up the findings that are **unambiguously safe** to
+rewrite, so you don't hand-edit boilerplate:
+
+- **Strips invisible/bidi characters** — the zero-width and direction-override
+  chars the injection rule flags (they render as nothing but still reach the model).
+- **Reorders frontmatter** — hoists `name` then `description` to the top, leaving
+  every other key in place. It's a *textual* reorder: quoting, comments, and
+  block scalars are preserved verbatim (no YAML re-serialization).
+- **Trims trailing whitespace** on every line.
+- **Collapses redundant blank lines** (3+ → 1) and normalizes the trailing newline.
+
+It is **safe by construction**: `--fix` never rewrites prompt-injection *intent*
+and never touches secrets — those stay reported for a human to handle. It's also
+idempotent (running it twice changes nothing) and skips malformed YAML rather
+than guessing. Add `--dry-run` to preview the changes as a unified diff without
+writing any files:
+
+```bash
+$ skill-sniffer ./skills --fix --dry-run
+would fix skills/foo/SKILL.md 🐕
+  • stripped 1 invisible/bidi character
+  • reordered 2 frontmatter keys (name, description first)
+  • trimmed trailing whitespace on 3 lines
+```
+
+`--fix` is a maintenance action, not a gate: it always exits `0` on success
+(whether or not anything needed fixing) and `2` only on a read/write error. Keep
+using a plain `skill-sniffer .` run (with `--min-score` / `--max-warnings`) to
+gate CI.
+
 ## Local development
 
 ```bash
@@ -109,7 +143,7 @@ $ node bin/skill-sniffer ./skills
 
 ## Status
 
-✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in.
+✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup has landed.
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
@@ -117,6 +151,7 @@ $ node bin/skill-sniffer ./skills
 - **M4 — Secret + prompt-injection rules ✅** The headline scents. `secrets` detects high-confidence credential shapes (AWS keys, `sk-…` provider keys, GitHub/Slack/Google tokens, PEM private-key headers, generic `API_KEY=value` assignments) and **redacts** the value in its message; obvious docs placeholders (`sk-xxxx`, `AKIA…EXAMPLE`, `your-api-key`) are ignored to keep false positives near zero. `injection` flags prompt-injection bait ("ignore previous instructions", "you are now…", "disregard your system prompt", exfiltration/guardrail-bypass lines), zero-width/bidi control characters (by codepoint), and agent-directed `<!-- … -->` comments. Findings carry **line + column**.
 - **M5 — Token-bloat + broken-path + tool-scope rules ✅** Rounds out the v0.1 ruleset. `token-bloat` estimates token weight (chars/4 heuristic) and warns past a configurable budget (default 2000). `broken-paths` extracts relative file references (markdown links/images + path-shaped inline code), resolves each against the **skill's own directory**, and errors on the ones missing from disk — URLs, anchors, and absolute/home paths are deliberately ignored. `tool-scope` flags wildcard / overly broad tool grants both in frontmatter (`allowed-tools: { exec: "*" }`, bare `*` in arrays) and in prose ("any shell command", "run arbitrary code", "unrestricted access").
 - **M6 — Good Boy Score + JSON + CI gates ✅** Makes it scorable and CI-friendly. `score.ts` turns findings into a **Good Boy Score™** (0–100) per file and overall (the overall is the *minimum* per-file score, so the weakest skill sets the grade). `--json` emits a stable, schema-versioned (`skill-sniffer/report@1`) machine report. CI gates: `--min-score <n>` and `--max-warnings <n>` with proper non-zero exit codes (`0` clean, `1` gate tripped, `2` usage error); errors always fail, warnings/info only fail behind a gate. `--init` writes a `.skillsnifferrc` config stub (never clobbering an existing one).
+- **v0.2 — `--fix` auto-cleanup ✅** Mechanically rewrites the *unambiguously safe* findings: strips invisible/bidi chars, reorders frontmatter (`name`/`description` first, formatting preserved), trims trailing whitespace, and collapses redundant blank lines. Safe by construction — never rewrites prompt-injection intent or secrets — idempotent, and skips malformed YAML. `--dry-run` previews the changes as a unified diff.
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -166,7 +201,7 @@ $ echo $?
 0
 ```
 
-See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (`--fix`, config-driven rule toggles, a GitHub Action, SARIF, multi-format support).
+See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (config-driven rule toggles, a GitHub Action, SARIF, multi-format support). `--fix` is done.
 
 ## License
 

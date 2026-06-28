@@ -60,7 +60,7 @@ const BAIT: BaitPattern[] = [
  * smuggle instructions past human review. We flag every occurrence with its
  * codepoint.
  */
-const INVISIBLE_CHARS: Record<number, string> = {
+export const INVISIBLE_CHARS: Record<number, string> = {
   0x200b: "zero-width space (U+200B)",
   0x200c: "zero-width non-joiner (U+200C)",
   0x200d: "zero-width joiner (U+200D)",

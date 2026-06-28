@@ -8,6 +8,7 @@ import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { renderJson } from "./report/json.js";
 import { writeConfigStub } from "./init.js";
+import { fixSkills, type FixFileResult } from "./fix.js";
 
 /** Parsed CLI options for the sniff action. */
 interface SniffOptions {
@@ -15,6 +16,8 @@ interface SniffOptions {
   minScore?: number;
   maxWarnings?: number;
   init?: boolean;
+  fix?: boolean;
+  dryRun?: boolean;
 }
 
 /**
@@ -75,6 +78,14 @@ export function buildProgram(): Command {
       "--init",
       `write a ${".skillsnifferrc"} config stub to the current directory and exit`,
     )
+    .option(
+      "--fix",
+      "auto-fix safe findings (strip invisible chars, tidy whitespace, reorder frontmatter)",
+    )
+    .option(
+      "--dry-run",
+      "with --fix, preview a diff of changes without writing any files",
+    )
     .action(async (paths: string[], opts: SniffOptions) => {
       // --init is a standalone action: scaffold config, then exit.
       if (opts.init) {
@@ -98,12 +109,27 @@ export function buildProgram(): Command {
         return;
       }
 
+      // --dry-run is only meaningful alongside --fix.
+      if (opts.dryRun && !opts.fix) {
+        throw new Error("--dry-run requires --fix");
+      }
+
       const files = await discoverSkills(paths);
       if (files.length === 0) {
         process.stdout.write(
           `${pc.yellow("no skills found")} 🐕💨 (looked for SKILL.md / *.skill.md)\n`,
         );
         setExit(program, EXIT.OK);
+        return;
+      }
+
+      // --fix is its own action: mechanically clean safe findings, then exit.
+      // It deliberately runs before (and instead of) the lint report so authors
+      // get a focused "here's what I changed" view.
+      if (opts.fix) {
+        const results = await fixSkills(files, { dryRun: opts.dryRun });
+        process.stdout.write(renderFixResults(results, opts.dryRun ?? false));
+        setExit(program, fixExitCode(results));
         return;
       }
 
@@ -158,6 +184,83 @@ function gateExitCode(
 /** Stash the resolved exit code on the program for {@link run} to read. */
 function setExit(program: Command, code: number): void {
   (program as Command & { __exitCode?: number }).__exitCode = code;
+}
+
+/**
+ * Exit code for a `--fix` run. A read/write failure on any file is a real
+ * problem ({@link EXIT.USAGE}); otherwise fixing always succeeds, whether or
+ * not anything actually needed changing ({@link EXIT.OK}). `--fix` is a
+ * maintenance action, not a gate, so a clean pass and an applied-fixes pass
+ * both exit 0 — CI uses the lint run (without `--fix`) to gate.
+ */
+function fixExitCode(results: FixFileResult[]): number {
+  return results.some((r) => r.error) ? EXIT.USAGE : EXIT.OK;
+}
+
+/**
+ * Render the outcome of a `--fix` run for humans. Lists each changed file with
+ * a one-line summary of the safe transforms applied; in `--dry-run` mode it
+ * also prints the unified diff so authors can eyeball the rewrite. Files that
+ * were already clean are summarized in a single trailing line to keep noise
+ * down on large kennels.
+ */
+function renderFixResults(results: FixFileResult[], dryRun: boolean): string {
+  const out: string[] = [];
+  const verb = dryRun ? "would fix" : "fixed";
+
+  let changedCount = 0;
+  let cleanCount = 0;
+  let errorCount = 0;
+
+  for (const r of results) {
+    if (r.error) {
+      errorCount++;
+      out.push(`${pc.red("error")} ${r.path} \u2014 ${r.error}`);
+      continue;
+    }
+    if (!r.changed) {
+      cleanCount++;
+      continue;
+    }
+
+    changedCount++;
+    out.push(`${pc.green(verb)} ${pc.bold(r.path)} \ud83d\udc15`);
+    for (const c of r.changes) {
+      out.push(`  ${pc.dim("\u2022")} ${c.message}`);
+    }
+    if (dryRun && r.diff) {
+      out.push(colorizeDiff(r.diff));
+    }
+  }
+
+  // Summary footer.
+  const parts: string[] = [];
+  if (changedCount > 0) {
+    parts.push(pc.green(`${changedCount} ${verb}`));
+  }
+  if (cleanCount > 0) parts.push(pc.dim(`${cleanCount} already clean`));
+  if (errorCount > 0) parts.push(pc.red(`${errorCount} errored`));
+  if (parts.length === 0) parts.push(pc.dim("nothing to do"));
+
+  const tail = dryRun && changedCount > 0
+    ? ` ${pc.yellow("(dry run \u2014 no files written)")}`
+    : "";
+  out.push(`\n${parts.join(pc.dim(", "))}${tail}`);
+
+  return out.join("\n") + "\n";
+}
+
+/** Apply red/green coloring to +/- lines of a unified diff for readability. */
+function colorizeDiff(diff: string): string {
+  return diff
+    .split("\n")
+    .map((line) => {
+      if (line.startsWith("+")) return pc.green(line);
+      if (line.startsWith("-")) return pc.red(line);
+      if (line.startsWith("@@")) return pc.cyan(line);
+      return pc.dim(line);
+    })
+    .join("\n");
 }
 
 /**
