@@ -106,3 +106,30 @@ export interface Report {
   /** Severity tallies across all findings. */
   counts: Record<Severity, number>;
 }
+
+/**
+ * The Good Boy Score™ for a single skill file: a 0–100 number derived from its
+ * findings, plus the per-severity counts that produced it. 100 is a clean file
+ * (a very good boy); 0 is the worst possible scent.
+ */
+export interface SkillScore {
+  /** Absolute path to the skill file this score belongs to. */
+  path: string;
+  /** Good Boy Score™ for this file, integer 0–100 (100 = clean). */
+  score: number;
+  /** Severity tallies for just this file. */
+  counts: Record<Severity, number>;
+}
+
+/**
+ * A scored {@link Report}: the overall Good Boy Score™ plus a per-file
+ * breakdown. The overall score is the *minimum* per-file score (a kennel is
+ * only as good as its worst-behaved dog), so CI gates catch the weakest skill.
+ * The JSON reporter serializes this; the pretty reporter shows the headline.
+ */
+export interface ScoredReport extends Report {
+  /** Overall Good Boy Score™ (the minimum per-file score), integer 0–100. */
+  score: number;
+  /** Per-file scores, in the same stable path order as the findings. */
+  scores: SkillScore[];
+}

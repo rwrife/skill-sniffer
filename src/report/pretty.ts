@@ -1,5 +1,10 @@
 import pc from "picocolors";
-import type { Finding, Report, Severity } from "../types.js";
+import type { Finding, Report, ScoredReport, Severity } from "../types.js";
+
+/** Type guard: does this report carry a Good Boy Score? */
+function isScored(report: Report): report is ScoredReport {
+  return typeof (report as ScoredReport).score === "number";
+}
 
 /**
  * Render a {@link Report} as a human-friendly terminal string, grouped by file
@@ -7,7 +12,8 @@ import type { Finding, Report, Severity } from "../types.js";
  * string (rather than writing it) so the CLI and tests share one code path.
  *
  * Clean files get a wag \ud83d\udc15; files with scents get their findings listed under
- * the path. A final summary line tallies the run.
+ * the path. A final summary line tallies the run. When the report is scored
+ * (M6), a Good Boy Score\u2122 headline is appended.
  */
 export function renderPretty(report: Report): string {
   const lines: string[] = [];
@@ -19,6 +25,7 @@ export function renderPretty(report: Report): string {
         `\ud83d\udc15 good boy \u2014 ${report.skillsChecked} skill(s) sniffed, no scents found.`,
       ),
     );
+    if (isScored(report)) lines.push(scoreLine(report.score));
     return lines.join("\n") + "\n";
   }
 
@@ -31,7 +38,19 @@ export function renderPretty(report: Report): string {
   }
 
   lines.push(summaryLine(report));
+  if (isScored(report)) lines.push(scoreLine(report.score));
   return lines.join("\n") + "\n";
+}
+
+/**
+ * Render the Good Boy Score\u2122 headline. Color tracks the grade: green for a
+ * solid score, yellow for so-so, red for a bad dog.
+ */
+function scoreLine(score: number): string {
+  const label = `Good Boy Score\u2122: ${score}/100`;
+  if (score >= 80) return pc.green(`\ud83c\udfc5 ${label}`);
+  if (score >= 50) return pc.yellow(`\ud83e\uddb4 ${label}`);
+  return pc.red(`\ud83d\udca9 ${label}`);
 }
 
 /** Format one finding: colored severity badge, message, and rule id. */
