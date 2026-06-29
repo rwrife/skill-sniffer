@@ -63,15 +63,18 @@ export interface Finding {
 }
 
 /**
- * Context handed to a rule's `run()`. Kept deliberately small for M3; future
- * milestones can extend it (config, severity overrides, token budget) without
- * touching every rule signature.
+ * Context handed to a rule's `run()`. Kept deliberately small; the engine builds
+ * one per run and threads it through every rule. Config-driven severity
+ * overrides (issue #8) are resolved here so no rule needs to know about config.
  */
 export interface RuleContext {
   /**
-   * Resolve a rule's effective severity for a finding, honoring future config
-   * overrides. In M3 this simply returns the rule's default, but routing every
-   * finding through it means severity tuning later needs zero rule changes.
+   * Resolve a rule's effective severity for a finding.
+   *
+   * Precedence: a project config override for the rule's id (if any) wins;
+   * otherwise the rule's own per-finding `fallback`; otherwise the rule's
+   * `defaultSeverity`. Routing every finding through this means severity tuning
+   * needs zero rule changes.
    */
   severityFor(rule: Rule, fallback?: Severity): Severity;
 }

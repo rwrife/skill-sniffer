@@ -11,6 +11,24 @@ export { getVersion } from "./version.js";
 export { discoverSkills, looksLikeSkillFile, SKILL_GLOBS } from "./discover.js";
 export { parseSkill, parseSkills } from "./parse.js";
 export { runEngine } from "./engine.js";
+export type { EngineOptions } from "./engine.js";
+export {
+  loadConfig,
+  normalizeConfig,
+  parseConfigText,
+  findConfigFile,
+  discoverConfigPath,
+  defaultConfig,
+  selectRules,
+  CONFIG_FILENAMES,
+  KNOWN_RULE_IDS,
+} from "./config.js";
+export type {
+  RawConfig,
+  ResolvedConfig,
+  ResolvedRuleConfig,
+  RuleSetting,
+} from "./config.js";
 export { rules, getRule, frontmatterRule } from "./rules/index.js";
 export { renderPretty } from "./report/pretty.js";
 export { renderJson, REPORT_SCHEMA } from "./report/json.js";

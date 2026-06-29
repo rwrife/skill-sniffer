@@ -4,11 +4,11 @@ import { resolve } from "node:path";
 /**
  * skill-sniffer 🐕👃 — `--init` config scaffolding.
  *
- * Writes a commented `.skillsnifferrc` stub into the target directory so users
- * have a discoverable starting point for project config. The file is JSON with
- * the knobs M6 exposes (token budget + the CI gate thresholds). Full rule
- * enable/disable wiring is a v0.2 backlog item (issue #8); this stub documents
- * the shape without promising behavior the engine doesn't yet honor.
+ * Writes a `.skillsnifferrc` stub into the target directory so users have a
+ * discoverable starting point for project config. The file is JSON with the
+ * knobs the linter honors: the token budget, the CI-gate thresholds
+ * (`minScore`/`maxWarnings`), and a `rules` map for enabling/disabling rules
+ * and overriding their severity (issue #8).
  *
  * Pure-ish and safe: it never overwrites an existing config (returns
  * `created: false` instead) and only touches the single dotfile it owns.
@@ -22,6 +22,20 @@ export const DEFAULT_CONFIG = {
   minScore: 0,
   /** Fail the run if total warnings exceed this (-1 disables). */
   maxWarnings: -1,
+  /**
+   * Per-rule overrides. Each value may be `false`/`"off"` to disable, `true`/
+   * `"on"` to force-enable, a severity (`"error"`/`"warning"`/`"info"`) to
+   * override how loud the rule is, or `{ enabled, severity }`. Stub lists every
+   * rule enabled at its default so the options are discoverable.
+   */
+  rules: {
+    frontmatter: "on",
+    secrets: "on",
+    injection: "on",
+    "tool-scope": "on",
+    "broken-paths": "on",
+    "token-bloat": "on",
+  },
 } as const;
 
 /** Canonical config filename. */

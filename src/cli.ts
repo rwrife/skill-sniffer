@@ -9,6 +9,7 @@ import { renderPretty } from "./report/pretty.js";
 import { renderJson } from "./report/json.js";
 import { writeConfigStub } from "./init.js";
 import { fixSkills, type FixFileResult } from "./fix.js";
+import { loadConfig, type ResolvedConfig } from "./config.js";
 
 /** Parsed CLI options for the sniff action. */
 interface SniffOptions {
@@ -18,6 +19,12 @@ interface SniffOptions {
   init?: boolean;
   fix?: boolean;
   dryRun?: boolean;
+  /**
+   * Config control. A string is an explicit path from `--config <path>`;
+   * `false` comes from `--no-config` (skip discovery, use built-in defaults);
+   * `undefined` means "discover normally".
+   */
+  config?: string | false;
 }
 
 /**
@@ -86,6 +93,14 @@ export function buildProgram(): Command {
       "--dry-run",
       "with --fix, preview a diff of changes without writing any files",
     )
+    .option(
+      "--config <path>",
+      `use a specific ${".skillsnifferrc"} file instead of discovering one`,
+    )
+    .option(
+      "--no-config",
+      "ignore any .skillsnifferrc and use built-in defaults",
+    )
     .action(async (paths: string[], opts: SniffOptions) => {
       // --init is a standalone action: scaffold config, then exit.
       if (opts.init) {
@@ -134,7 +149,16 @@ export function buildProgram(): Command {
       }
 
       const skills = await parseSkills(files);
-      const report = runEngine(skills);
+
+      // Resolve project config (issue #8). Precedence, low → high:
+      //   built-in defaults  <  .skillsnifferrc  <  CLI flags.
+      // `--no-config` (opts.config === false) skips discovery entirely.
+      const config = loadConfig(paths, {
+        explicitPath: typeof opts.config === "string" ? opts.config : undefined,
+        enabled: opts.config !== false,
+      });
+
+      const report = runEngine(skills, { config });
       const scored = scoreReport(
         report,
         skills.map((s) => s.path),
@@ -143,22 +167,26 @@ export function buildProgram(): Command {
       if (opts.json) {
         process.stdout.write(renderJson(scored, getVersion()));
       } else {
+        process.stdout.write(renderConfigNotices(config));
         process.stdout.write(renderPretty(scored));
       }
 
-      setExit(program, gateExitCode(scored.counts.error, scored, opts));
+      setExit(program, gateExitCode(scored.counts.error, scored, opts, config));
     });
 
   return program;
 }
 
 /**
- * Decide the exit code from findings + gates.
+ * Decide the exit code from findings + gates, with config + CLI precedence.
+ *
+ * Effective gate values are resolved CLI-first, then config, then "no gate":
+ * `--min-score`/`--max-warnings` flags override any config-supplied defaults.
  *
  * Fails (returns {@link EXIT.FINDINGS}) when **any** of these hold:
  * - there is at least one `error` finding;
- * - `--min-score` is set and the overall score is below it;
- * - `--max-warnings` is set and the warning count exceeds it.
+ * - an effective `min-score` is set and the overall score is below it;
+ * - an effective `max-warnings` is set and the warning count exceeds it.
  *
  * Otherwise returns {@link EXIT.OK}. Warnings/info alone never fail the build
  * unless a gate explicitly asks them to.
@@ -167,18 +195,36 @@ function gateExitCode(
   errorCount: number,
   scored: { score: number; counts: { warning: number } },
   opts: SniffOptions,
+  config: ResolvedConfig,
 ): number {
+  const minScore = opts.minScore ?? config.minScore;
+  const maxWarnings = opts.maxWarnings ?? config.maxWarnings;
+
   if (errorCount > 0) return EXIT.FINDINGS;
-  if (opts.minScore !== undefined && scored.score < opts.minScore) {
+  if (minScore !== undefined && scored.score < minScore) {
     return EXIT.FINDINGS;
   }
-  if (
-    opts.maxWarnings !== undefined &&
-    scored.counts.warning > opts.maxWarnings
-  ) {
+  if (maxWarnings !== undefined && scored.counts.warning > maxWarnings) {
     return EXIT.FINDINGS;
   }
   return EXIT.OK;
+}
+
+/**
+ * Render a short, dim header noting the config in effect and any validation
+ * warnings it produced (unknown rule ids, ignored keys). Empty string when no
+ * config file was loaded and there's nothing to report — a no-config run stays
+ * silent. JSON mode skips this entirely (machines get a clean payload).
+ */
+function renderConfigNotices(config: ResolvedConfig): string {
+  const lines: string[] = [];
+  if (config.sourcePath) {
+    lines.push(pc.dim(`⚙ config: ${config.sourcePath}`));
+  }
+  for (const w of config.warnings) {
+    lines.push(`${pc.yellow("config warning:")} ${w}`);
+  }
+  return lines.length ? lines.join("\n") + "\n" : "";
 }
 
 /** Stash the resolved exit code on the program for {@link run} to read. */
