@@ -20,6 +20,13 @@ export {
   DEFAULT_CONFIG,
   RC_FILENAME,
 } from "./init.js";
+export { fixContent, fixSkills, unifiedDiff } from "./fix.js";
+export type {
+  FixKind,
+  FixChange,
+  FixContentResult,
+  FixFileResult,
+} from "./fix.js";
 export type {
   ParsedSkill,
   Severity,
