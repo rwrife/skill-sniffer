@@ -24,6 +24,8 @@ npx skill-sniffer ./skills/foo/SKILL.md --json
 npx skill-sniffer . --min-score 80    # fail CI if any skill scores under 80
 npx skill-sniffer . --max-warnings 0  # fail CI on any warning
 npx skill-sniffer --init              # write a .skillsnifferrc stub
+npx skill-sniffer . --config team.json   # use a specific config file
+npx skill-sniffer . --no-config          # ignore any .skillsnifferrc
 npx skill-sniffer . --fix             # auto-clean the safe stuff in place
 npx skill-sniffer . --fix --dry-run   # preview the cleanup as a diff
 ```
@@ -60,16 +62,54 @@ stable, schema-versioned report for tooling:
 }
 ```
 
-`--init` drops a `.skillsnifferrc` stub (it won't clobber an existing one):
+### Config (`.skillsnifferrc`)
+
+Tune the dog per project. `--init` drops a `.skillsnifferrc` stub (it won't
+clobber an existing one):
 
 ```jsonc
 {
   "$schema": "skill-sniffer/config@1",
   "tokenBudget": 2000,   // token-bloat warning budget (chars/4 heuristic)
   "minScore": 0,         // fail if any skill scores below this (0 disables)
-  "maxWarnings": -1      // fail if total warnings exceed this (-1 disables)
+  "maxWarnings": -1,     // fail if total warnings exceed this (-1 disables)
+  "rules": {
+    // off / on, a severity ("error" | "warning" | "info"), or { enabled, severity }
+    "injection": "on",
+    "token-bloat": "warning",
+    "broken-paths": "off"
+  }
 }
 ```
+
+**What you can configure**
+
+- **Enable/disable rules** by id — `false`/`"off"` turns a rule off, `true`/`"on"`
+  keeps it. Rule ids: `frontmatter`, `secrets`, `injection`, `tool-scope`,
+  `broken-paths`, `token-bloat`.
+- **Override severity** — give a rule a severity string (`"error"`/`"warning"`/
+  `"info"`) to change how loud it is, or the object form
+  `{ "enabled": true, "severity": "error" }`.
+- **Token budget** + the **`minScore` / `maxWarnings`** CI-gate defaults.
+
+**Discovery & formats.** skill-sniffer walks **upward** from the target path
+until it finds the first of `.skillsnifferrc`, `.skillsnifferrc.json`,
+`.skillsnifferrc.yaml`, or `.skillsnifferrc.yml` (so one rc at your repo root
+covers every skill below it). JSON and YAML are both supported — the
+extension-less dotfile accepts either. No new dependency: YAML is parsed by the
+same engine that reads frontmatter.
+
+**Precedence** (highest wins):
+
+```
+built-in defaults  <  .skillsnifferrc  <  CLI flags
+```
+
+So `--min-score 90` overrides a config `minScore`, and `--max-warnings`
+overrides a config `maxWarnings`. Point at a specific file with
+`--config <path>` (a named-but-missing file is a usage error), or ignore any
+config entirely with `--no-config`. Unknown keys and bad values are reported as
+non-fatal `config warning:` notes rather than failing the run.
 
 ### Auto-fix (`--fix`)
 
@@ -143,7 +183,7 @@ $ node bin/skill-sniffer ./skills
 
 ## Status
 
-✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup has landed.
+✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup and `.skillsnifferrc` config (rule enable/disable, severity overrides, tunable budget/gates) have landed.
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
