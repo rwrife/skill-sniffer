@@ -35,3 +35,12 @@ jobs:
 
       - name: Smoke-test CLI (--version)
         run: node bin/skill-sniffer --version
+
+      - name: Smoke-test Action runner (no PR context)
+        # The composite action's entry point. With no PR event in scope it
+        # should degrade gracefully ("nothing to sniff") and exit 0, proving
+        # the built dist/action/* loads and the bin wiring is intact.
+        env:
+          GITHUB_REPOSITORY: rwrife/skill-sniffer
+          INPUT_COMMENT: "false"
+        run: node bin/skill-sniffer-action

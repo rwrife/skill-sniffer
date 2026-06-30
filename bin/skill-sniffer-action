@@ -1,0 +1,12 @@
+#!/usr/bin/env node
+// Thin entry point for the GitHub Action. The real logic lives in the compiled
+// dist/action/run.js. The composite action in action.yml builds the project,
+// then invokes this. Mirrors bin/skill-sniffer's "thin wrapper" pattern.
+import { main } from "../dist/action/run.js";
+
+try {
+  process.exit(main());
+} catch (err) {
+  process.stderr.write(`skill-sniffer action error: ${err?.message ?? err}\n`);
+  process.exit(2);
+}

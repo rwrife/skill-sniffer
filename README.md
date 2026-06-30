@@ -62,6 +62,53 @@ stable, schema-versioned report for tooling:
 }
 ```
 
+### GitHub Action (PR scores)
+
+Gate skills in CI and get the Good Boy Score™ commented right on the PR. The
+action lints only the **changed** skill files in a pull request and posts a
+single *sticky* comment (it edits the same comment each push instead of spamming
+new ones).
+
+```yaml
+# .github/workflows/skill-sniffer.yml
+name: skill-sniffer
+on:
+  pull_request:
+    paths:
+      - "**/SKILL.md"
+      - "**/*.skill.md"
+
+permissions:
+  contents: read
+  pull-requests: write   # needed to post the score comment
+
+jobs:
+  sniff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0      # so the action can diff against the PR base
+      - uses: rwrife/skill-sniffer@v1
+        with:
+          min-score: "80"     # fail the check if any changed skill scores < 80
+```
+
+**Inputs**
+
+| Input | Default | Description |
+| ----- | ------- | ----------- |
+| `min-score` | _(none)_ | Fail the check if the overall score (min across changed files) is below this. Blank = only fail on `error` findings. |
+| `comment` | `true` | Post/update the sticky PR comment. Set `"false"` to run as a silent gate. |
+| `github-token` | `${{ github.token }}` | Token used for the comment (needs `pull-requests: write`). |
+
+**Outputs**: `score` (0–100), `passed` (`"true"`/`"false"`), and `findings`
+(total count) — handy for downstream steps.
+
+The comment shows a pass/fail headline, a per-file score table (worst dog first),
+and the loudest findings. No changed skill files? It posts a quiet "nothing to
+sniff" and passes, clearing any earlier red comment.
+
 ### Config (`.skillsnifferrc`)
 
 Tune the dog per project. `--init` drops a `.skillsnifferrc` stub (it won't
@@ -192,6 +239,7 @@ $ node bin/skill-sniffer ./skills
 - **M5 — Token-bloat + broken-path + tool-scope rules ✅** Rounds out the v0.1 ruleset. `token-bloat` estimates token weight (chars/4 heuristic) and warns past a configurable budget (default 2000). `broken-paths` extracts relative file references (markdown links/images + path-shaped inline code), resolves each against the **skill's own directory**, and errors on the ones missing from disk — URLs, anchors, and absolute/home paths are deliberately ignored. `tool-scope` flags wildcard / overly broad tool grants both in frontmatter (`allowed-tools: { exec: "*" }`, bare `*` in arrays) and in prose ("any shell command", "run arbitrary code", "unrestricted access").
 - **M6 — Good Boy Score + JSON + CI gates ✅** Makes it scorable and CI-friendly. `score.ts` turns findings into a **Good Boy Score™** (0–100) per file and overall (the overall is the *minimum* per-file score, so the weakest skill sets the grade). `--json` emits a stable, schema-versioned (`skill-sniffer/report@1`) machine report. CI gates: `--min-score <n>` and `--max-warnings <n>` with proper non-zero exit codes (`0` clean, `1` gate tripped, `2` usage error); errors always fail, warnings/info only fail behind a gate. `--init` writes a `.skillsnifferrc` config stub (never clobbering an existing one).
 - **v0.2 — `--fix` auto-cleanup ✅** Mechanically rewrites the *unambiguously safe* findings: strips invisible/bidi chars, reorders frontmatter (`name`/`description` first, formatting preserved), trims trailing whitespace, and collapses redundant blank lines. Safe by construction — never rewrites prompt-injection intent or secrets — idempotent, and skips malformed YAML. `--dry-run` previews the changes as a unified diff.
+- **v0.2 — GitHub Action + PR score comment ✅** A drop-in `uses: rwrife/skill-sniffer@v1` composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -241,7 +289,7 @@ $ echo $?
 0
 ```
 
-See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (config-driven rule toggles, a GitHub Action, SARIF, multi-format support). `--fix` is done.
+See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (SARIF output, diff/`--since` mode, multi-format support). `--fix`, config, and the GitHub Action are done.
 
 ## License
 
