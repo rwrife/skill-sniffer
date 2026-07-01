@@ -1,12 +1,22 @@
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import fg from "fast-glob";
+import type { SkillFormat } from "./types.js";
+import {
+  ALL_FORMATS,
+  FORMAT_GLOBS,
+  classifyFormat,
+  isKnownFormat,
+  resolveFormats,
+} from "./format.js";
 
 /**
- * Glob patterns that identify a skill file. Anthropic-style `SKILL.md`
- * (any depth) plus the `*.skill.md` convention used by some toolchains.
+ * Glob patterns that identify the native skill format. Anthropic-style
+ * `SKILL.md` (any depth) plus the `*.skill.md` convention used by some
+ * toolchains. Kept exported for back-compatibility; the full multi-format set
+ * lives in {@link FORMAT_GLOBS}.
  */
-export const SKILL_GLOBS = ["**/SKILL.md", "**/*.skill.md"] as const;
+export const SKILL_GLOBS = FORMAT_GLOBS.skill;
 
 /** Directories we never want to descend into during discovery. */
 const IGNORE = [
@@ -17,32 +27,73 @@ const IGNORE = [
 ] as const;
 
 /**
- * Discover skill files from one or more input paths.
+ * Format selection for discovery. `--include` narrows to the named formats;
+ * `--exclude` removes them. With neither, every known format is scanned.
+ */
+export interface DiscoverOptions {
+  /** Only scan these formats (canonical ids or aliases). Empty ⇒ all. */
+  include?: readonly string[];
+  /** Never scan these formats (canonical ids or aliases). */
+  exclude?: readonly string[];
+}
+
+/**
+ * Discover agent-context files from one or more input paths.
  *
  * Each input may be:
- * - a **file** — included directly if it looks like a skill file
- *   (`SKILL.md` or `*.skill.md`), otherwise ignored;
- * - a **directory** — recursively globbed for {@link SKILL_GLOBS};
- * - a **glob string** — passed through to fast-glob as-is.
+ * - a **file** — included directly if it matches a known agent-context format
+ *   (`SKILL.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, MCP manifest, …) and
+ *   that format is in the selected set; otherwise ignored;
+ * - a **directory** — recursively globbed for every selected format;
+ * - a **glob string** — passed through to fast-glob as-is (format filtering is
+ *   still applied to the results, so an explicit glob can't smuggle in an
+ *   excluded format).
  *
  * Returns a de-duplicated, sorted list of absolute paths. Missing inputs are
  * skipped silently (no throw) so the CLI degrades gracefully.
+ *
+ * The default (no options) scans **all** formats. Since the native skill format
+ * is always among them, the historical skills-only callers keep working; the
+ * broadened default is the point of issue #10 (multi-format support).
  */
-export async function discoverSkills(inputs: string[]): Promise<string[]> {
-  const found = new Set<string>();
+export async function discoverSkills(
+  inputs: string[],
+  options: DiscoverOptions = {},
+): Promise<string[]> {
+  const formats = resolveFormats(options);
+  const formatSet = new Set<SkillFormat>(formats);
+  const globs = globsForFormats(formats);
 
+  const found = new Set<string>();
   for (const input of inputs) {
-    const matches = await discoverOne(input);
+    const matches = await discoverOne(input, globs, formatSet);
     for (const m of matches) found.add(m);
   }
 
   return [...found].sort();
 }
 
-async function discoverOne(input: string): Promise<string[]> {
-  // A glob-looking input is handed straight to fast-glob.
+/** Collect the discovery globs for a set of formats (de-duplicated). */
+function globsForFormats(
+  formats: readonly Exclude<SkillFormat, "unknown">[],
+): string[] {
+  const out = new Set<string>();
+  for (const fmt of formats) {
+    for (const g of FORMAT_GLOBS[fmt]) out.add(g);
+  }
+  return [...out];
+}
+
+async function discoverOne(
+  input: string,
+  globs: readonly string[],
+  formatSet: ReadonlySet<SkillFormat>,
+): Promise<string[]> {
+  // A glob-looking input is handed straight to fast-glob, but its results are
+  // still filtered to the selected formats so `--exclude` is always honored.
   if (isGlob(input)) {
-    return globAbsolute(input);
+    const matches = await globAbsolute(input);
+    return matches.filter((p) => formatSet.has(classifyFormat(p)));
   }
 
   let info;
@@ -55,12 +106,12 @@ async function discoverOne(input: string): Promise<string[]> {
 
   if (info.isDirectory()) {
     return globAbsolute(
-      SKILL_GLOBS.map((g) => `${stripTrailingSlash(input)}/${g}`),
+      globs.map((g) => `${stripTrailingSlash(input)}/${g}`),
     );
   }
 
-  // A plain file: include it only if it matches the skill naming convention.
-  if (info.isFile() && looksLikeSkillFile(input)) {
+  // A plain file: include it only if it matches a known, selected format.
+  if (info.isFile() && isKnownFormat(input) && formatSet.has(classifyFormat(input))) {
     return [resolve(input)];
   }
 
@@ -72,7 +123,7 @@ async function globAbsolute(
 ): Promise<string[]> {
   return fg(patterns as string | string[], {
     absolute: true,
-    dot: false,
+    dot: true,
     onlyFiles: true,
     ignore: [...IGNORE],
     caseSensitiveMatch: false,
@@ -81,13 +132,13 @@ async function globAbsolute(
 }
 
 /**
- * True if a filename matches the skill naming convention — `SKILL.md` (with
- * any directory prefix, or bare) or `*.skill.md`. Case-insensitive.
+ * True if a filename matches the native skill naming convention — `SKILL.md`
+ * (with any directory prefix, or bare) or `*.skill.md`. Case-insensitive.
+ * Retained for back-compatibility; prefer {@link isKnownFormat} for the full
+ * multi-format check.
  */
 export function looksLikeSkillFile(filePath: string): boolean {
-  const lower = filePath.toLowerCase().replace(/\\/g, "/");
-  const base = lower.slice(lower.lastIndexOf("/") + 1);
-  return base === "skill.md" || base.endsWith(".skill.md");
+  return classifyFormat(filePath) === "skill";
 }
 
 /** Cheap heuristic for glob metacharacters. */
@@ -98,3 +149,5 @@ function isGlob(input: string): boolean {
 function stripTrailingSlash(p: string): string {
   return p.replace(/\/+$/, "");
 }
+
+export { ALL_FORMATS };
