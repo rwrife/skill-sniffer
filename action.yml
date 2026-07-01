@@ -1,0 +1,65 @@
+name: "skill-sniffer"
+description: "🐕👃 Lint changed agent SKILL.md files and post the Good Boy Score™ on the PR."
+author: "rwrife"
+branding:
+  icon: "shield"
+  color: "yellow"
+
+inputs:
+  min-score:
+    description: >-
+      Fail the check if the overall Good Boy Score™ (the minimum across changed
+      skill files) is below this value (0–100). Leave blank to only fail on
+      `error`-severity findings.
+    required: false
+    default: ""
+  comment:
+    description: >-
+      Post/update a sticky PR comment with the scores and top findings. Set to
+      "false" to run as a silent gate (still fails the check on a tripped gate).
+    required: false
+    default: "true"
+  github-token:
+    description: >-
+      Token used to post the PR comment. Defaults to the workflow token; needs
+      `pull-requests: write` permission for the comment step.
+    required: false
+    default: ${{ github.token }}
+
+outputs:
+  score:
+    description: "Overall Good Boy Score™ (0–100) across the changed skill files."
+    value: ${{ steps.sniff.outputs.score }}
+  passed:
+    description: "\"true\" if the run passed its gate, \"false\" otherwise."
+    value: ${{ steps.sniff.outputs.passed }}
+  findings:
+    description: "Total number of findings across the changed skill files."
+    value: ${{ steps.sniff.outputs.findings }}
+
+runs:
+  using: "composite"
+  steps:
+    # Build skill-sniffer from the action's own checkout (kept separate from the
+    # consumer's workspace so we never touch their node_modules / dist).
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: "20"
+
+    - name: Install & build skill-sniffer
+      shell: bash
+      working-directory: ${{ github.action_path }}
+      run: |
+        npm ci --no-audit --no-fund
+        npm run build
+
+    - name: Sniff changed skills & comment
+      id: sniff
+      shell: bash
+      env:
+        # The runner reads these to scope the diff, find the PR, and post.
+        GH_TOKEN: ${{ inputs.github-token }}
+        INPUT_MIN-SCORE: ${{ inputs.min-score }}
+        INPUT_COMMENT: ${{ inputs.comment }}
+      run: node "${{ github.action_path }}/bin/skill-sniffer-action"
