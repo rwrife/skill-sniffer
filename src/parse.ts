@@ -2,6 +2,7 @@ import { readFile } from "node:fs/promises";
 import { resolve } from "node:path";
 import matter from "gray-matter";
 import type { ParsedSkill } from "./types.js";
+import { classifyFormat } from "./format.js";
 
 /**
  * gray-matter exposes a module-level `clearCache()` at runtime, but its bundled
@@ -25,6 +26,7 @@ const clearMatterCache: () => void =
  */
 export async function parseSkill(filePath: string): Promise<ParsedSkill> {
   const abs = resolve(filePath);
+  const format = classifyFormat(abs);
 
   let raw: string;
   try {
@@ -32,6 +34,7 @@ export async function parseSkill(filePath: string): Promise<ParsedSkill> {
   } catch (err) {
     return {
       path: abs,
+      format,
       frontmatter: {},
       body: "",
       raw: "",
@@ -49,6 +52,7 @@ export async function parseSkill(filePath: string): Promise<ParsedSkill> {
     const frontmatter = isPlainObject(parsed.data) ? parsed.data : {};
     return {
       path: abs,
+      format,
       frontmatter: frontmatter as Record<string, unknown>,
       body: parsed.content,
       raw,
@@ -58,6 +62,7 @@ export async function parseSkill(filePath: string): Promise<ParsedSkill> {
     // as the body so token/secret/injection rules can still scan it.
     return {
       path: abs,
+      format,
       frontmatter: {},
       body: raw,
       raw,

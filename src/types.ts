@@ -7,12 +7,41 @@
  */
 
 /**
+ * The agent-context file formats skill-sniffer understands. `skill` is the
+ * native `SKILL.md` / `*.skill.md` (the only one with a frontmatter *contract*);
+ * the rest are other agent-instruction files that share the same footguns
+ * (secrets, injection, token bloat, broken paths) but have no required
+ * frontmatter. `mcp` covers MCP server manifests (`*.mcp.json` / `mcp.json`).
+ * `unknown` is a defensive fallback so classification is total.
+ *
+ * Rules that enforce a frontmatter *contract* (required `name`/`description`)
+ * key off `skill`; format-agnostic rules ignore this entirely.
+ */
+export type SkillFormat =
+  | "skill"
+  | "agents"
+  | "claude"
+  | "cursorrules"
+  | "mcp"
+  | "unknown";
+
+/**
  * A skill file that has been located on disk and parsed into frontmatter +
  * body. This is the unit every rule will eventually run over.
  */
 export interface ParsedSkill {
   /** Absolute path to the skill file on disk. */
   path: string;
+  /**
+   * Which agent-context {@link SkillFormat} this file is, inferred from its
+   * name. Lets rules degrade gracefully — e.g. the frontmatter contract only
+   * applies to `skill`, while secrets/injection/token/path rules run on all.
+   *
+   * Optional for back-compatibility: callers (and older tests) that build a
+   * `ParsedSkill` by hand may omit it, in which case consumers treat it as the
+   * native `"skill"` format. {@link parseSkill} always sets it.
+   */
+  format?: SkillFormat;
   /** Parsed YAML frontmatter. `{}` when there is none. */
   frontmatter: Record<string, unknown>;
   /** Markdown body with the frontmatter block stripped. */

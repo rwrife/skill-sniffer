@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "example": {
+      "command": "npx",
+      "args": ["-y", "@example/mcp-server"],
+      "env": {
+        "OPENAI_API_KEY": "sk-Qr7Ztp2Mn5Kw9Xv3Bd6Lf1Hs4Jc8Ga0Pe2Yq7Tn5Rw"
+      }
+    }
+  }
+}
