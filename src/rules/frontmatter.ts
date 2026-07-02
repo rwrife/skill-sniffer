@@ -1,4 +1,5 @@
 import type { Finding, ParsedSkill, Rule, RuleContext } from "../types.js";
+import { isSkillFormat } from "../format.js";
 
 /**
  * Length past which a `description` is considered bloated. Frontmatter
@@ -11,7 +12,7 @@ const MAX_DESCRIPTION_LENGTH = 200;
 /**
  * The frontmatter contract rule \u2014 the first real scent.
  *
- * Checks the YAML frontmatter every skill is expected to carry:
+ * Checks the YAML frontmatter every *skill* is expected to carry:
  * - `name` is present and a non-empty string  \u2192 error if missing.
  * - `description` is present and a non-empty string \u2192 error if missing.
  * - `description` isn't absurdly long \u2192 warning past {@link MAX_DESCRIPTION_LENGTH}.
@@ -20,11 +21,18 @@ const MAX_DESCRIPTION_LENGTH = 200;
  * as a finding, so the engine has something to report instead of silently
  * dropping a broken file. When the frontmatter couldn't be parsed at all we
  * skip the name/description checks (we'd just be guessing).
+ *
+ * **Multi-format degradation (issue #10).** The required-field contract only
+ * makes sense for the native `SKILL.md` format. Other agent-context files
+ * (`AGENTS.md`, `CLAUDE.md`, `.cursorrules`, MCP manifests) routinely carry no
+ * frontmatter at all, so on those we *don't* demand `name`/`description` \u2014
+ * we only validate a `description` when one is actually present (still catches
+ * an overlong one), and we still surface genuine parse errors.
  */
 export const frontmatterRule: Rule = {
   id: "frontmatter",
   description:
-    "Require name + description frontmatter; warn on missing or overlong description.",
+    "Require name + description frontmatter on skills; warn on missing or overlong description.",
   defaultSeverity: "error",
 
   run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
@@ -33,7 +41,8 @@ export const frontmatterRule: Rule = {
     const warn = (message: string) => findings.push(make(skill, ctx, "warning", message));
 
     // A parse failure means the frontmatter block is untrustworthy. Report it
-    // once and don't pile on with derived name/description complaints.
+    // once and don't pile on with derived name/description complaints. Applies
+    // to every format \u2014 malformed YAML is malformed YAML.
     if (skill.error) {
       error(skill.error);
       return findings;
@@ -41,21 +50,34 @@ export const frontmatterRule: Rule = {
 
     const { name, description } = skill.frontmatter;
 
-    if (!isNonEmptyString(name)) {
-      error(
-        isMissing(name)
-          ? "missing required frontmatter field `name`"
-          : "frontmatter field `name` must be a non-empty string",
-      );
+    // Required-field contract: skills only. Non-skill formats have no such
+    // contract, so we skip these checks entirely and degrade gracefully.
+    if (isSkillFormat(skill.format)) {
+      if (!isNonEmptyString(name)) {
+        error(
+          isMissing(name)
+            ? "missing required frontmatter field `name`"
+            : "frontmatter field `name` must be a non-empty string",
+        );
+      }
+
+      if (!isNonEmptyString(description)) {
+        error(
+          isMissing(description)
+            ? "missing required frontmatter field `description`"
+            : "frontmatter field `description` must be a non-empty string",
+        );
+      }
     }
 
-    if (!isNonEmptyString(description)) {
-      error(
-        isMissing(description)
-          ? "missing required frontmatter field `description`"
-          : "frontmatter field `description` must be a non-empty string",
-      );
-    } else if (description.trim().length > MAX_DESCRIPTION_LENGTH) {
+    // Overlong-description check runs for *any* format that actually declares a
+    // string description \u2014 an essay in frontmatter wastes context tokens no
+    // matter the file type. For a skill missing its description the block above
+    // already errored; this simply won't fire.
+    if (
+      isNonEmptyString(description) &&
+      description.trim().length > MAX_DESCRIPTION_LENGTH
+    ) {
       warn(
         `frontmatter \`description\` is ${description.trim().length} chars ` +
           `(over ${MAX_DESCRIPTION_LENGTH}); trim it to save context tokens`,

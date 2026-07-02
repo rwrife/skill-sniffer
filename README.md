@@ -15,12 +15,46 @@ Everybody's writing agent skills (`SKILL.md` for Claude Code, Codex CLI, and fri
 
 Every file gets a **Good Boy Score™** (0–100). Clean file? Wag. Leaked key? Growl.
 
+## Beyond `SKILL.md` — multi-format support
+
+Skills aren't the only agent-context files with footguns. skill-sniffer also
+discovers and lints:
+
+| Format | Matched files | Frontmatter contract? |
+| --- | --- | --- |
+| **Skill** (native) | `SKILL.md`, `*.skill.md` | ✅ requires `name` + `description` |
+| **AGENTS.md** | `AGENTS.md` | — none (degrades gracefully) |
+| **CLAUDE.md** | `CLAUDE.md` | — none |
+| **Cursor rules** | `.cursorrules`, `.cursor/rules/**.mdc` | — none |
+| **MCP manifest** | `mcp.json`, `*.mcp.json` | — none |
+
+The format-agnostic rules — **secrets**, **injection**, **token-bloat**, and
+**broken-paths** — run on *every* format. The frontmatter `name`/`description`
+contract only applies to native skills; on formats that carry no frontmatter it
+degrades gracefully (no false "missing frontmatter" errors), while a genuinely
+malformed YAML block is still reported and an overlong `description` is still
+warned about wherever one appears.
+
+Control which formats are scanned with repeatable / comma-separated selectors:
+
+```bash
+skill-sniffer .                              # all formats (default)
+skill-sniffer . --include skill,agents       # only SKILL.md + AGENTS.md
+skill-sniffer . --include cursor             # only .cursorrules / .cursor rules
+skill-sniffer . --exclude mcp                # everything except MCP manifests
+```
+
+Selectors accept friendly aliases (`skills`, `agents.md`, `cursor`, `mcp`, …);
+an unrecognized name prints a warning and is ignored.
+
 ## Quick start
 
 ```bash
 # (once published)
 npx skill-sniffer ./skills
 npx skill-sniffer ./skills/foo/SKILL.md --json
+npx skill-sniffer . --include skill,agents,claude  # scan only these formats
+npx skill-sniffer . --exclude mcp                  # skip MCP manifests
 npx skill-sniffer . --min-score 80    # fail CI if any skill scores under 80
 npx skill-sniffer . --max-warnings 0  # fail CI on any warning
 npx skill-sniffer --init              # write a .skillsnifferrc stub
@@ -197,7 +231,7 @@ npm install
 npm run build      # compile src/ -> dist/
 npm test           # vitest
 node bin/skill-sniffer --version
-node bin/skill-sniffer path/to/skills/   # discovers SKILL.md / *.skill.md and parses each
+node bin/skill-sniffer path/to/skills/   # discovers SKILL.md / *.skill.md / AGENTS.md / CLAUDE.md / .cursorrules / MCP manifests and parses each
 ```
 
 Point it at a directory and it recursively discovers every `SKILL.md` and
@@ -230,7 +264,7 @@ $ node bin/skill-sniffer ./skills
 
 ## Status
 
-✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup and `.skillsnifferrc` config (rule enable/disable, severity overrides, tunable budget/gates) have landed.
+✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup, `.skillsnifferrc` config (rule enable/disable, severity overrides, tunable budget/gates), and multi-format support (`AGENTS.md` / `CLAUDE.md` / `.cursorrules` / MCP manifests) have landed.
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
@@ -240,6 +274,7 @@ $ node bin/skill-sniffer ./skills
 - **M6 — Good Boy Score + JSON + CI gates ✅** Makes it scorable and CI-friendly. `score.ts` turns findings into a **Good Boy Score™** (0–100) per file and overall (the overall is the *minimum* per-file score, so the weakest skill sets the grade). `--json` emits a stable, schema-versioned (`skill-sniffer/report@1`) machine report. CI gates: `--min-score <n>` and `--max-warnings <n>` with proper non-zero exit codes (`0` clean, `1` gate tripped, `2` usage error); errors always fail, warnings/info only fail behind a gate. `--init` writes a `.skillsnifferrc` config stub (never clobbering an existing one).
 - **v0.2 — `--fix` auto-cleanup ✅** Mechanically rewrites the *unambiguously safe* findings: strips invisible/bidi chars, reorders frontmatter (`name`/`description` first, formatting preserved), trims trailing whitespace, and collapses redundant blank lines. Safe by construction — never rewrites prompt-injection intent or secrets — idempotent, and skips malformed YAML. `--dry-run` previews the changes as a unified diff.
 - **v0.2 — GitHub Action + PR score comment ✅** A drop-in `uses: rwrife/skill-sniffer@v1` composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
+- **v0.2 — Multi-format support ✅** Discovers and lints `AGENTS.md`, `CLAUDE.md`, `.cursorrules` / `.cursor/rules/**.mdc`, and MCP manifests (`mcp.json` / `*.mcp.json`) alongside native `SKILL.md`. Format-agnostic rules (secrets, injection, token-bloat, broken-paths) run on all of them; the frontmatter `name`/`description` contract applies to skills only and degrades gracefully elsewhere. `--include` / `--exclude` choose which formats to scan.
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -289,7 +324,7 @@ $ echo $?
 0
 ```
 
-See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (SARIF output, diff/`--since` mode, multi-format support). `--fix`, config, and the GitHub Action are done.
+See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (SARIF output, diff/`--since` mode). `--fix`, config, the GitHub Action, and multi-format support are done.
 
 ## License
 

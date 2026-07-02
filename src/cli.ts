@@ -2,6 +2,7 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { getVersion } from "./version.js";
 import { discoverSkills } from "./discover.js";
+import { canonicalFormat, ALL_FORMATS } from "./format.js";
 import { parseSkills } from "./parse.js";
 import { runEngine } from "./engine.js";
 import { scoreReport } from "./score.js";
@@ -19,6 +20,10 @@ interface SniffOptions {
   init?: boolean;
   fix?: boolean;
   dryRun?: boolean;
+  /** Only scan these agent-context formats (repeatable / comma-separated). */
+  include?: string[];
+  /** Never scan these agent-context formats (repeatable / comma-separated). */
+  exclude?: string[];
   /**
    * Config control. A string is an explicit path from `--config <path>`;
    * `false` comes from `--no-config` (skip discovery, use built-in defaults);
@@ -51,6 +56,42 @@ function parseIntOption(name: string): (value: string) => number {
     }
     return n;
   };
+}
+
+/**
+ * Collect a repeatable, comma-splittable list option (e.g.
+ * `--include skill,agents --include claude`). Commander calls this per
+ * occurrence; we split on commas and accumulate so both styles work.
+ */
+function collectList(value: string, previous: string[] = []): string[] {
+  const parts = value
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+  return [...previous, ...parts];
+}
+
+/**
+ * Validate `--include` / `--exclude` selectors against the known formats,
+ * returning a warning line per unrecognized name (empty when all are valid).
+ * Unknown selectors are ignored by the resolver, so this is purely advisory —
+ * but surfacing them stops a typo (`--include agent`) from silently scanning
+ * nothing.
+ */
+function validateFormatSelectors(opts: SniffOptions): string[] {
+  const warnings: string[] = [];
+  const check = (flag: string, values?: string[]) => {
+    for (const raw of values ?? []) {
+      if (!canonicalFormat(raw)) {
+        warnings.push(
+          `${flag}: unknown format "${raw}" (known: ${ALL_FORMATS.join(", ")})`,
+        );
+      }
+    }
+  };
+  check("--include", opts.include);
+  check("--exclude", opts.exclude);
+  return warnings;
 }
 
 /**
@@ -101,6 +142,16 @@ export function buildProgram(): Command {
       "--no-config",
       "ignore any .skillsnifferrc and use built-in defaults",
     )
+    .option(
+      "--include <formats>",
+      `only scan these agent-context formats (repeatable/comma-separated: ${ALL_FORMATS.join(", ")})`,
+      collectList,
+    )
+    .option(
+      "--exclude <formats>",
+      "skip these agent-context formats (repeatable/comma-separated)",
+      collectList,
+    )
     .action(async (paths: string[], opts: SniffOptions) => {
       // --init is a standalone action: scaffold config, then exit.
       if (opts.init) {
@@ -129,10 +180,18 @@ export function buildProgram(): Command {
         throw new Error("--dry-run requires --fix");
       }
 
-      const files = await discoverSkills(paths);
+      const selectorWarnings = validateFormatSelectors(opts);
+      for (const w of selectorWarnings) {
+        process.stderr.write(`${pc.yellow("warning:")} ${w}\n`);
+      }
+
+      const files = await discoverSkills(paths, {
+        include: opts.include,
+        exclude: opts.exclude,
+      });
       if (files.length === 0) {
         process.stdout.write(
-          `${pc.yellow("no skills found")} 🐕💨 (looked for SKILL.md / *.skill.md)\n`,
+          `${pc.yellow("no skills found")} 🐕💨 (looked for SKILL.md / *.skill.md / AGENTS.md / CLAUDE.md / .cursorrules / MCP manifests)\n`,
         );
         setExit(program, EXIT.OK);
         return;

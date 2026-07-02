@@ -9,6 +9,17 @@
 export { run } from "./cli.js";
 export { getVersion } from "./version.js";
 export { discoverSkills, looksLikeSkillFile, SKILL_GLOBS } from "./discover.js";
+export type { DiscoverOptions } from "./discover.js";
+export {
+  classifyFormat,
+  isKnownFormat,
+  isSkillFormat,
+  resolveFormats,
+  canonicalFormat,
+  FORMAT_GLOBS,
+  FORMAT_LABELS,
+  ALL_FORMATS,
+} from "./format.js";
 export { parseSkill, parseSkills } from "./parse.js";
 export { runEngine } from "./engine.js";
 export type { EngineOptions } from "./engine.js";
@@ -47,6 +58,7 @@ export type {
 } from "./fix.js";
 export type {
   ParsedSkill,
+  SkillFormat,
   Severity,
   Finding,
   Rule,
