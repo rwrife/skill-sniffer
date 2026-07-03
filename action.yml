@@ -19,6 +19,14 @@ inputs:
       "false" to run as a silent gate (still fails the check on a tripped gate).
     required: false
     default: "true"
+  sarif:
+    description: >-
+      Path to write a SARIF 2.1.0 report to (e.g. "skill-sniffer.sarif"). When
+      set, findings for the changed skill files are written there so a
+      downstream `github/codeql-action/upload-sarif` step can surface them in
+      the Security tab and as inline PR annotations. Leave blank to skip SARIF.
+    required: false
+    default: ""
   github-token:
     description: >-
       Token used to post the PR comment. Defaults to the workflow token; needs
@@ -62,4 +70,5 @@ runs:
         GH_TOKEN: ${{ inputs.github-token }}
         INPUT_MIN-SCORE: ${{ inputs.min-score }}
         INPUT_COMMENT: ${{ inputs.comment }}
+        INPUT_SARIF: ${{ inputs.sarif }}
       run: node "${{ github.action_path }}/bin/skill-sniffer-action"

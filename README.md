@@ -53,6 +53,7 @@ an unrecognized name prints a warning and is ignored.
 # (once published)
 npx skill-sniffer ./skills
 npx skill-sniffer ./skills/foo/SKILL.md --json
+npx skill-sniffer . --sarif skill-sniffer.sarif  # SARIF 2.1.0 for code-scanning
 npx skill-sniffer . --include skill,agents,claude  # scan only these formats
 npx skill-sniffer . --exclude mcp                  # skip MCP manifests
 npx skill-sniffer . --min-score 80    # fail CI if any skill scores under 80
@@ -96,6 +97,57 @@ stable, schema-versioned report for tooling:
 }
 ```
 
+### SARIF output (`--sarif`) — findings in the GitHub UI
+
+`--json` is great for tooling, but findings still only live in logs. **SARIF
+2.1.0** (`--sarif`) is the format GitHub **code-scanning** speaks: upload it and
+every finding shows up in the **Security tab** and as an **inline PR annotation**
+on the exact line — the same integration ESLint and shellcheck get, no server
+required.
+
+```bash
+skill-sniffer ./skills --sarif skill-sniffer.sarif   # write SARIF to a file
+skill-sniffer ./skills --sarif                       # …or stream it to stdout
+```
+
+- `--sarif <path>` writes SARIF to that file; you can combine it with `--json`
+  (JSON goes to stdout, SARIF to the file).
+- Bare `--sarif` streams SARIF to **stdout** and is therefore **mutually
+  exclusive** with `--json` (two machine formats can't share stdout).
+- Severity maps to SARIF levels: `error → error`, `warning → warning`,
+  `info → note`. Findings with a line number get a `region.startLine`; whole-file
+  findings degrade to a file-level annotation. Artifact URIs are **repo-relative**
+  so annotations land on the right file on any runner.
+
+Upload it from a workflow with `github/codeql-action/upload-sarif`:
+
+```yaml
+# .github/workflows/skill-sniffer-sarif.yml
+name: skill-sniffer (code-scanning)
+on:
+  pull_request:
+    paths: ["**/SKILL.md", "**/*.skill.md"]
+
+permissions:
+  contents: read
+  security-events: write   # required to upload SARIF
+
+jobs:
+  sniff:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: npx skill-sniffer . --sarif skill-sniffer.sarif
+        continue-on-error: true   # upload results even when the gate trips
+      - uses: github/codeql-action/upload-sarif@v3
+        with:
+          sarif_file: skill-sniffer.sarif
+```
+
+The bundled GitHub Action can emit the SARIF for you too — set its `sarif` input
+(see the [table below](#github-action-pr-scores)) and add an `upload-sarif` step
+pointed at that path.
+
 ### GitHub Action (PR scores)
 
 Gate skills in CI and get the Good Boy Score™ commented right on the PR. The
@@ -134,10 +186,26 @@ jobs:
 | ----- | ------- | ----------- |
 | `min-score` | _(none)_ | Fail the check if the overall score (min across changed files) is below this. Blank = only fail on `error` findings. |
 | `comment` | `true` | Post/update the sticky PR comment. Set `"false"` to run as a silent gate. |
+| `sarif` | _(none)_ | Path to write a SARIF 2.1.0 report to (e.g. `"skill-sniffer.sarif"`) for a downstream `upload-sarif` step. Blank = no SARIF. |
 | `github-token` | `${{ github.token }}` | Token used for the comment (needs `pull-requests: write`). |
 
 **Outputs**: `score` (0–100), `passed` (`"true"`/`"false"`), and `findings`
 (total count) — handy for downstream steps.
+
+To also surface findings in code-scanning, set the `sarif` input and add an
+upload step:
+
+```yaml
+      - uses: rwrife/skill-sniffer@v1
+        with:
+          sarif: skill-sniffer.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()   # upload even if the gate failed the check
+        with:
+          sarif_file: skill-sniffer.sarif
+```
+
+(Uploading needs `security-events: write` in the job's `permissions`.)
 
 The comment shows a pass/fail headline, a per-file score table (worst dog first),
 and the loudest findings. No changed skill files? It posts a quiet "nothing to
@@ -275,6 +343,7 @@ $ node bin/skill-sniffer ./skills
 - **v0.2 — `--fix` auto-cleanup ✅** Mechanically rewrites the *unambiguously safe* findings: strips invisible/bidi chars, reorders frontmatter (`name`/`description` first, formatting preserved), trims trailing whitespace, and collapses redundant blank lines. Safe by construction — never rewrites prompt-injection intent or secrets — idempotent, and skips malformed YAML. `--dry-run` previews the changes as a unified diff.
 - **v0.2 — GitHub Action + PR score comment ✅** A drop-in `uses: rwrife/skill-sniffer@v1` composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
 - **v0.2 — Multi-format support ✅** Discovers and lints `AGENTS.md`, `CLAUDE.md`, `.cursorrules` / `.cursor/rules/**.mdc`, and MCP manifests (`mcp.json` / `*.mcp.json`) alongside native `SKILL.md`. Format-agnostic rules (secrets, injection, token-bloat, broken-paths) run on all of them; the frontmatter `name`/`description` contract applies to skills only and degrades gracefully elsewhere. `--include` / `--exclude` choose which formats to scan.
+- **v0.2 — SARIF output ✅** `--sarif [path]` emits a **SARIF 2.1.0** report (backlog item #6) so findings surface natively in **GitHub code-scanning** (Security tab + inline PR annotations) via `github/codeql-action/upload-sarif`. Maps severity → SARIF level (`error`/`warning`/`note`), emits the rule registry as `reportingDescriptor`s, and uses **repo-relative** artifact URIs; findings with a line get a `region`, whole-file ones degrade to file-level. The GitHub Action gained a `sarif` input to write the file for a downstream upload step. See the [SARIF output](#sarif-output---sarif--findings-in-the-github-ui) section above.
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -324,7 +393,9 @@ $ echo $?
 0
 ```
 
-See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog (SARIF output, diff/`--since` mode). `--fix`, config, the GitHub Action, and multi-format support are done.
+See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog. SARIF
+output (`--sarif`) is done; diff/`--since` mode is next. `--fix`, config, the
+GitHub Action, and multi-format support are done.
 
 ## License
 
