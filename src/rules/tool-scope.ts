@@ -83,6 +83,17 @@ export const toolScopeRule: Rule = {
   description:
     "Flag wildcard or overly broad tool grants (e.g. `exec: *`, \"any shell command\").",
   defaultSeverity: "error",
+  rationale:
+    "A skill that grants itself unrestricted tools — `exec: *`, 'any shell " +
+    "command', full filesystem write — hands the agent a blank check, so one " +
+    "bad instruction or injection becomes arbitrary code execution. " +
+    "Least-privilege means enumerating the specific commands or scopes the " +
+    "skill actually needs, which also documents its blast radius for reviewers.",
+  example: {
+    lang: "yaml",
+    bad: "tools:\n  exec: \"*\"   # any shell command",
+    good: "tools:\n  exec:\n    - git status\n    - git diff",
+  },
 
   run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
     const findings: Finding[] = [];

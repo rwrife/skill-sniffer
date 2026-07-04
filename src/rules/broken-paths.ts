@@ -52,6 +52,17 @@ export const brokenPathsRule: Rule = {
   description:
     "Resolve relative file paths referenced in the skill against its own directory; flag missing ones.",
   defaultSeverity: "error",
+  rationale:
+    "Skills routinely point at helper scripts, templates, or docs by relative " +
+    "path. If that path doesn't resolve against the skill's own directory the " +
+    "instruction is dead on arrival — the agent tries to read a file that " +
+    "isn't there and either errors or hallucinates. Catching it at lint time " +
+    "beats discovering it mid-run. Fix the path or ship the missing file.",
+  example: {
+    lang: "markdown",
+    bad: "Run the setup helper at `./scripts/setup.sh`.   (file does not exist)",
+    good: "Run the setup helper at `./scripts/setup.sh`.   (file committed alongside SKILL.md)",
+  },
 
   run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
     // Need a real on-disk location to resolve against. In-memory/virtual skills
