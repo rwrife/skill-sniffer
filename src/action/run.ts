@@ -23,6 +23,8 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { looksLikeSkillFile } from "../discover.js";
+import { getVersion } from "../version.js";
+import { renderSarif } from "../report/sarif.js";
 import {
   aggregateReports,
   parseRawReport,
@@ -61,6 +63,13 @@ interface ActionInputs {
   headSha?: string;
   /** Whether posting the PR comment is enabled (`comment` input). */
   comment: boolean;
+  /**
+   * Path to write a SARIF 2.1.0 report to (`sarif` input), or `undefined` when
+   * unset/blank. When set, the runner emits SARIF for the changed files so a
+   * downstream `github/codeql-action/upload-sarif` step can surface findings in
+   * the code-scanning UI. Blank means "don't emit SARIF".
+   */
+  sarifPath?: string;
 }
 
 /**
@@ -129,6 +138,10 @@ function readInputs(): ActionInputs {
   const comment = (process.env["INPUT_COMMENT"] ?? "true").toLowerCase() !==
     "false";
 
+  // `sarif` input is a path; blank/missing means "don't emit SARIF".
+  const sarifRaw = process.env["INPUT_SARIF"]?.trim();
+  const sarifPath = sarifRaw ? sarifRaw : undefined;
+
   return {
     minScore: parseMinScore(process.env["INPUT_MIN-SCORE"]),
     repoRoot,
@@ -137,6 +150,7 @@ function readInputs(): ActionInputs {
     baseSha,
     headSha: headSha ?? process.env.GITHUB_SHA,
     comment,
+    sarifPath,
   };
 }
 
@@ -211,7 +225,7 @@ function cliBinPath(): string {
  * capture stdout regardless of exit code and parse it. A genuinely broken run
  * (no/garbage stdout) throws.
  */
-function lintFiles(files: string[], repoRoot: string): RawJsonReport {
+function lintFiles(files: string[], repoRoot: string, sarifPath?: string): RawJsonReport {
   if (files.length === 0) {
     // Nothing to lint — synthesize an empty, clean report.
     return {
@@ -225,11 +239,16 @@ function lintFiles(files: string[], repoRoot: string): RawJsonReport {
     };
   }
 
+  // `--sarif <path>` writes SARIF to a file while `--json` still streams the
+  // report to stdout — the two coexist (only bare `--sarif` to stdout would
+  // conflict with `--json`).
+  const sarifArgs = sarifPath ? ["--sarif", sarifPath] : [];
+
   let stdout = "";
   try {
     stdout = execFileSync(
       process.execPath,
-      [cliBinPath(), "--json", ...files],
+      [cliBinPath(), "--json", ...sarifArgs, ...files],
       { cwd: repoRoot, encoding: "utf8", maxBuffer: 32 * 1024 * 1024 },
     );
   } catch (err) {
@@ -360,6 +379,22 @@ export function main(): number {
   // No changed skill files: post an all-clear sticky (so a prior red comment is
   // cleared) and pass.
   if (changed.length === 0) {
+    // If SARIF was requested, still write an empty-but-valid report so a
+    // downstream unconditional `upload-sarif` step doesn't fail on a missing
+    // file (it simply uploads zero results).
+    if (inputs.sarifPath) {
+      try {
+        writeFileSync(
+          inputs.sarifPath,
+          renderSarif([], getVersion(), { baseDir: inputs.repoRoot }),
+          "utf8",
+        );
+      } catch (err) {
+        process.stderr.write(
+          `skill-sniffer: could not write SARIF: ${(err as Error).message}\n`,
+        );
+      }
+    }
     if (inputs.comment && inputs.prNumber !== undefined) {
       try {
         upsertComment(
@@ -377,7 +412,7 @@ export function main(): number {
     return 0;
   }
 
-  const raw = lintFiles(changed, inputs.repoRoot);
+  const raw = lintFiles(changed, inputs.repoRoot, inputs.sarifPath);
   const report = aggregateReports([raw]);
   const passed = passesGate(report, inputs.minScore);
 

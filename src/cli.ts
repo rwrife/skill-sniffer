@@ -8,6 +8,8 @@ import { runEngine } from "./engine.js";
 import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { renderJson } from "./report/json.js";
+import { renderSarif } from "./report/sarif.js";
+import { writeFileSync } from "node:fs";
 import { writeConfigStub } from "./init.js";
 import { fixSkills, type FixFileResult } from "./fix.js";
 import { loadConfig, type ResolvedConfig } from "./config.js";
@@ -15,6 +17,13 @@ import { loadConfig, type ResolvedConfig } from "./config.js";
 /** Parsed CLI options for the sniff action. */
 interface SniffOptions {
   json?: boolean;
+  /**
+   * SARIF 2.1.0 output. `true` (bare `--sarif`) writes SARIF to stdout; a
+   * string (`--sarif <path>`) writes it to that file. `undefined` means the
+   * flag was not passed. Emitting to stdout is mutually exclusive with `--json`
+   * (two machine formats can't share stdout); writing to a file is not.
+   */
+  sarif?: string | boolean;
   minScore?: number;
   maxWarnings?: number;
   init?: boolean;
@@ -113,6 +122,10 @@ export function buildProgram(): Command {
     .argument("[paths...]", "skill file(s) or director(ies) to sniff")
     .option("--json", "emit a machine-readable JSON report instead of pretty output")
     .option(
+      "--sarif [path]",
+      "emit a SARIF 2.1.0 report for GitHub code-scanning; writes to <path> if given, else stdout (stdout is mutually exclusive with --json)",
+    )
+    .option(
       "--min-score <n>",
       "exit non-zero if any skill scores below <n> (0\u2013100)",
       parseIntOption("min-score"),
@@ -180,6 +193,14 @@ export function buildProgram(): Command {
         throw new Error("--dry-run requires --fix");
       }
 
+      // Two machine-readable formats can't share stdout. `--sarif` to a file is
+      // fine alongside `--json`; only bare `--sarif` (stdout) conflicts.
+      if (opts.json && opts.sarif === true) {
+        throw new Error(
+          "--json and --sarif (to stdout) are mutually exclusive; pass --sarif <path> to write SARIF to a file alongside --json",
+        );
+      }
+
       const selectorWarnings = validateFormatSelectors(opts);
       for (const w of selectorWarnings) {
         process.stderr.write(`${pc.yellow("warning:")} ${w}\n`);
@@ -223,7 +244,22 @@ export function buildProgram(): Command {
         skills.map((s) => s.path),
       );
 
-      if (opts.json) {
+      // SARIF output (issue #21). When a path is given, write there and still
+      // print the human/JSON report to stdout; a bare `--sarif` streams SARIF
+      // to stdout instead of the pretty/JSON report.
+      const sarifToFile = typeof opts.sarif === "string";
+      const sarifToStdout = opts.sarif === true;
+      if (sarifToFile) {
+        const sarif = renderSarif(scored.findings, getVersion());
+        writeFileSync(opts.sarif as string, sarif, "utf8");
+        process.stderr.write(
+          `${pc.dim(`\u2192 wrote SARIF to ${opts.sarif as string}`)}\n`,
+        );
+      }
+
+      if (sarifToStdout) {
+        process.stdout.write(renderSarif(scored.findings, getVersion()));
+      } else if (opts.json) {
         process.stdout.write(renderJson(scored, getVersion()));
       } else {
         process.stdout.write(renderConfigNotices(config));
