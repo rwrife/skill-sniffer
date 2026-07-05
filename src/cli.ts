@@ -13,6 +13,7 @@ import { writeFileSync } from "node:fs";
 import { writeConfigStub } from "./init.js";
 import { fixSkills, type FixFileResult } from "./fix.js";
 import { loadConfig, type ResolvedConfig } from "./config.js";
+import { explain } from "./explain.js";
 
 /** Parsed CLI options for the sniff action. */
 interface SniffOptions {
@@ -117,6 +118,29 @@ export function buildProgram(): Command {
       "🐕👃 A paranoid, offline linter for agent SKILL.md files. Sniffs out secrets, prompt-injection bait, token bloat, broken paths, and over-broad tool grants.",
     )
     .version(getVersion(), "-v, --version", "print the version and exit");
+
+  // `explain [ruleId]` — offline docs for a rule id (issue #22). With no id it
+  // lists every registered rule; with an unknown id it errors (non-zero exit)
+  // and suggests valid ids. Registered as a proper subcommand so it doesn't
+  // collide with the root `[paths...]` sniff action.
+  program
+    .command("explain")
+    .argument(
+      "[ruleId]",
+      "the rule id to explain (omit to list every rule)",
+    )
+    .description(
+      "explain why a rule exists, what triggers it, and how to fix it (offline)",
+    )
+    .action((ruleId: string | undefined) => {
+      const result = explain(ruleId);
+      if (result.stream === "stderr") {
+        process.stderr.write(result.text);
+      } else {
+        process.stdout.write(result.text);
+      }
+      setExit(program, result.exitCode);
+    });
 
   program
     .argument("[paths...]", "skill file(s) or director(ies) to sniff")

@@ -34,6 +34,19 @@ export const frontmatterRule: Rule = {
   description:
     "Require name + description frontmatter on skills; warn on missing or overlong description.",
   defaultSeverity: "error",
+  rationale:
+    "A skill's `name` and `description` are the only parts an agent sees before " +
+    "deciding whether to load it, so a missing or empty one makes the skill " +
+    "undiscoverable (or silently mis-picked). An overlong `description` is the " +
+    "opposite problem: it's injected verbatim into context on every candidate " +
+    "match, so an essay here is a recurring token tax. This contract only " +
+    "applies to native SKILL.md files; other formats are checked leniently.",
+  example: {
+    lang: "yaml",
+    bad: "---\nname: \ndescription: \n---\n# does a thing",
+    good:
+      "---\nname: pdf-extract\ndescription: Extract text + tables from PDFs into Markdown.\n---\n# does a thing",
+  },
 
   run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
     const findings: Finding[] = [];

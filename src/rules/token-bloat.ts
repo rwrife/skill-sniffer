@@ -45,6 +45,19 @@ export function makeTokenBloatRule(budget = DEFAULT_TOKEN_BUDGET): Rule {
     description:
       "Warn when a skill's estimated token weight (chars/4) exceeds the budget.",
     defaultSeverity: "warning",
+    rationale:
+      "A skill's full text is injected into the agent's context every time it " +
+      "loads, so its size is a direct, recurring cost on every turn — not a " +
+      "one-off. Past a few thousand tokens you're usually better off splitting " +
+      "the skill or trimming boilerplate. It's a warning, not an error: " +
+      "sometimes a skill genuinely needs the words.",
+    example: {
+      lang: "markdown",
+      bad: "# giant skill\n<8 KB of prose, changelog, and copy-pasted docs…>",
+      good:
+        "# focused skill\nOne tight page of instructions; link out to long " +
+        "reference docs instead of inlining them.",
+    },
 
     run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
       if (!skill.raw) return [];

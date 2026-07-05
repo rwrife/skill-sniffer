@@ -115,6 +115,18 @@ export const secretsRule: Rule = {
   description:
     "Detect leaked credentials (AWS, sk-… keys, GitHub PATs, private keys, API_KEY= assignments).",
   defaultSeverity: "error",
+  rationale:
+    "A skill file is code that gets shared, committed, and pasted into agent " +
+    "context, so a hard-coded credential in one is a live leak: anyone who " +
+    "reads the repo (or the agent's transcript) gets the key. Secrets belong " +
+    "in environment variables or a secrets manager the agent reads at runtime, " +
+    "never inline. Obvious placeholders (`sk-xxxx`, `YOUR_KEY_HERE`) are " +
+    "ignored so examples don't trip the alarm.",
+  example: {
+    lang: "markdown",
+    bad: 'Use the key `sk-live-9f8a7b6c5d4e3f2a1b0c9d8e7f6a5b4c` when calling the API.',
+    good: "Read the key from `$OPENAI_API_KEY`; never hard-code it in the skill.",
+  },
 
   run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
     if (!skill.raw) return [];

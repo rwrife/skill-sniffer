@@ -122,8 +122,36 @@ export interface Rule {
   description: string;
   /** Severity used when the rule doesn't pick a more specific one per finding. */
   defaultSeverity: Severity;
+  /**
+   * Longer, human-facing explanation of *why* the rule exists and what it
+   * protects against — a sentence or two shown by `explain <rule-id>`.
+   * Optional so a rule can ship with just `id + description`; when absent,
+   * `explain` falls back to the one-line {@link description}.
+   */
+  rationale?: string;
+  /**
+   * An optional before/after teaching example for `explain <rule-id>`: a
+   * snippet that *triggers* the rule (`bad`) alongside the corrected form
+   * (`good`), with an optional `lang` hint for future syntax highlighting.
+   * Degrades cleanly — rules without an example simply omit the section.
+   */
+  example?: RuleExample;
   /** Inspect a parsed skill and return zero or more findings. */
   run(skill: ParsedSkill, ctx: RuleContext): Finding[];
+}
+
+/**
+ * A worked bad → good example attached to a {@link Rule}, surfaced by the
+ * `explain` command. Both snippets are raw text (no fences); the renderer adds
+ * framing/coloring. `lang` is advisory metadata for a future highlighter.
+ */
+export interface RuleExample {
+  /** A minimal snippet that trips the rule. */
+  bad: string;
+  /** The same snippet corrected so the rule is satisfied. */
+  good: string;
+  /** Optional language hint (e.g. `"yaml"`, `"markdown"`) for highlighting. */
+  lang?: string;
 }
 
 /**

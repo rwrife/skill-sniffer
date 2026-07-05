@@ -63,7 +63,51 @@ npx skill-sniffer . --config team.json   # use a specific config file
 npx skill-sniffer . --no-config          # ignore any .skillsnifferrc
 npx skill-sniffer . --fix             # auto-clean the safe stuff in place
 npx skill-sniffer . --fix --dry-run   # preview the cleanup as a diff
+npx skill-sniffer explain token-bloat # offline docs for a rule id
+npx skill-sniffer explain             # list every rule + one-liner
 ```
+
+## Understanding findings (`explain`)
+
+When skill-sniffer growls it prints a terse finding and a **rule id** (e.g.
+`token-bloat`). To turn that cryptic id into a teaching moment, ask it to
+`explain` — think "ESLint docs, but in your terminal, offline":
+
+```bash
+skill-sniffer explain frontmatter
+```
+
+```text
+frontmatter  [error]
+Require name + description frontmatter on skills; warn on missing or overlong description.
+
+Why this rule exists
+A skill's `name` and `description` are the only parts an agent sees before
+deciding whether to load it, so a missing or empty one makes the skill
+undiscoverable (or silently mis-picked)…
+
+Example
+✗ bad (yaml)
+  ---
+  name:
+  description:
+  ---
+✓ good (yaml)
+  ---
+  name: pdf-extract
+  description: Extract text + tables from PDFs into Markdown.
+  ---
+```
+
+- **`explain <rule-id>`** — prints the id, default severity, one-line
+  description, a longer rationale, and (when available) a colorized bad → good
+  example.
+- **`explain`** (no argument) — lists every registered rule with its one-liner,
+  for discoverability.
+- **`explain <unknown-id>`** — exits non-zero and suggests the valid ids, so a
+  typo is a nudge rather than a dead end.
+
+Everything is fully offline and zero-dependency — the docs live with the rules.
 
 ### Good Boy Score™
 
@@ -344,6 +388,7 @@ $ node bin/skill-sniffer ./skills
 - **v0.2 — GitHub Action + PR score comment ✅** A drop-in `uses: rwrife/skill-sniffer@v1` composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
 - **v0.2 — Multi-format support ✅** Discovers and lints `AGENTS.md`, `CLAUDE.md`, `.cursorrules` / `.cursor/rules/**.mdc`, and MCP manifests (`mcp.json` / `*.mcp.json`) alongside native `SKILL.md`. Format-agnostic rules (secrets, injection, token-bloat, broken-paths) run on all of them; the frontmatter `name`/`description` contract applies to skills only and degrades gracefully elsewhere. `--include` / `--exclude` choose which formats to scan.
 - **v0.2 — SARIF output ✅** `--sarif [path]` emits a **SARIF 2.1.0** report (backlog item #6) so findings surface natively in **GitHub code-scanning** (Security tab + inline PR annotations) via `github/codeql-action/upload-sarif`. Maps severity → SARIF level (`error`/`warning`/`note`), emits the rule registry as `reportingDescriptor`s, and uses **repo-relative** artifact URIs; findings with a line get a `region`, whole-file ones degrade to file-level. The GitHub Action gained a `sarif` input to write the file for a downstream upload step. See the [SARIF output](#sarif-output---sarif--findings-in-the-github-ui) section above.
+- **v0.2 — `explain` command ✅** `skill-sniffer explain <rule-id>` prints offline docs for a rule: id, default severity, one-line description, a longer rationale, and a colorized bad → good example. `explain` with no argument lists every registered rule for discoverability; an unknown id exits non-zero and suggests the valid ids. Zero new dependencies — the docs live alongside the rules via optional `rationale`/`example` metadata on the `Rule` contract. See [Understanding findings](#understanding-findings-explain) above.
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 
@@ -394,8 +439,8 @@ $ echo $?
 ```
 
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog. SARIF
-output (`--sarif`) is done; diff/`--since` mode is next. `--fix`, config, the
-GitHub Action, and multi-format support are done.
+output (`--sarif`) and the `explain` command are done; diff/`--since` mode is
+next. `--fix`, config, the GitHub Action, and multi-format support are done.
 
 ## License
 
