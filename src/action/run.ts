@@ -23,6 +23,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { looksLikeSkillFile } from "../discover.js";
+import { changedFilesSince } from "../git.js";
 import { getVersion } from "../version.js";
 import { renderSarif } from "../report/sarif.js";
 import {
@@ -155,48 +156,35 @@ function readInputs(): ActionInputs {
 }
 
 /**
- * Compute the list of changed skill files for the PR. Uses a three-dot diff
- * (`base...head`) so it reflects exactly what the PR adds/modifies relative to
- * its merge base, ignoring unrelated churn on the base branch.
+ * Compute the list of changed skill files for the PR. Delegates the actual diff
+ * to the shared {@link changedFilesSince} helper (single source of truth with
+ * the CLI `--since` flag), which uses a three-dot diff (`base...HEAD`) so it
+ * reflects exactly what the PR adds/modifies relative to its merge base,
+ * ignoring unrelated churn on the base branch.
  *
  * Returns absolute paths. Falls back to an empty list (not all files) when the
- * base SHA is unknown — better to comment "nothing changed" than to noisily
- * lint the whole repo on a non-PR trigger.
+ * base SHA is unknown or the diff can't be produced — better to comment
+ * "nothing changed" than to noisily lint the whole repo on a non-PR trigger, so
+ * unlike the CLI this swallows git errors rather than surfacing them.
  */
 function collectChangedSkillFiles(inputs: ActionInputs): string[] {
   if (!inputs.baseSha) return [];
 
-  let raw = "";
+  let changedPaths: string[];
   try {
-    // Diff filter ACMR = Added, Copied, Modified, Renamed — skip deletions.
-    raw = execFileSync(
-      "git",
-      [
-        "diff",
-        "--name-only",
-        "--diff-filter=ACMR",
-        `${inputs.baseSha}...HEAD`,
-      ],
-      { cwd: inputs.repoRoot, encoding: "utf8" },
-    );
+    // `fetchMissing` mirrors the old shallow-clone recovery: a PR base commit
+    // may be absent on a shallow checkout, so fetch it once before giving up.
+    changedPaths = changedFilesSince(inputs.baseSha, {
+      cwd: inputs.repoRoot,
+      fetchMissing: true,
+    });
   } catch {
-    // Shallow clone may lack the base commit; try fetching it once.
-    try {
-      execFileSync("git", ["fetch", "--depth=1", "origin", inputs.baseSha], {
-        cwd: inputs.repoRoot,
-        stdio: "ignore",
-      });
-      raw = execFileSync(
-        "git",
-        ["diff", "--name-only", "--diff-filter=ACMR", `${inputs.baseSha}...HEAD`],
-        { cwd: inputs.repoRoot, encoding: "utf8" },
-      );
-    } catch {
-      return [];
-    }
+    // Any git failure on a CI trigger degrades to "nothing changed" rather than
+    // failing the Action — the sticky comment just reports an all-clear.
+    return [];
   }
 
-  const changed = filterSkillFiles(raw.split("\n"));
+  const changed = filterSkillFiles(changedPaths);
   // Resolve to absolute paths under the workspace so they match CLI output.
   return changed.map((p) =>
     p.startsWith("/") ? p : `${inputs.repoRoot.replace(/\/$/, "")}/${p}`,

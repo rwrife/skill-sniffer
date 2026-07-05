@@ -1,7 +1,10 @@
 import { Command } from "commander";
 import pc from "picocolors";
 import { getVersion } from "./version.js";
-import { discoverSkills } from "./discover.js";
+import { discoverSkills, intersectChanged } from "./discover.js";
+import { changedFilesSince, GitError, isGitRepo } from "./git.js";
+import { execFileSync } from "node:child_process";
+import { resolve as resolvePath } from "node:path";
 import { canonicalFormat, ALL_FORMATS } from "./format.js";
 import { parseSkills } from "./parse.js";
 import { runEngine } from "./engine.js";
@@ -27,6 +30,13 @@ interface SniffOptions {
   sarif?: string | boolean;
   minScore?: number;
   maxWarnings?: number;
+  /**
+   * Diff mode (issue #23). When present, only files changed vs this ref (a
+   * three-dot diff against HEAD) are linted. Commander yields `true` for a bare
+   * `--since` (no value), which we resolve to `origin/main`; a string is an
+   * explicit ref. `undefined` means the flag wasn't passed.
+   */
+  since?: string | boolean;
   init?: boolean;
   fix?: boolean;
   dryRun?: boolean;
@@ -160,6 +170,10 @@ export function buildProgram(): Command {
       parseIntOption("max-warnings"),
     )
     .option(
+      "--since [ref]",
+      "only lint skill files changed vs <ref> (three-dot diff against HEAD); defaults to origin/main when no ref is given",
+    )
+    .option(
       "--init",
       `write a ${".skillsnifferrc"} config stub to the current directory and exit`,
     )
@@ -207,9 +221,16 @@ export function buildProgram(): Command {
       }
 
       if (!paths || paths.length === 0) {
-        // No paths: show help and exit cleanly.
-        program.help();
-        return;
+        // Diff mode with no explicit path is a common, sensible invocation
+        // (`skill-sniffer --since`): default to scanning the current directory
+        // rather than showing help, so it lints whatever changed under cwd.
+        if (opts.since !== undefined) {
+          paths = ["."];
+        } else {
+          // No paths and not diff mode: show help and exit cleanly.
+          program.help();
+          return;
+        }
       }
 
       // --dry-run is only meaningful alongside --fix.
@@ -234,10 +255,30 @@ export function buildProgram(): Command {
         include: opts.include,
         exclude: opts.exclude,
       });
-      if (files.length === 0) {
-        process.stdout.write(
-          `${pc.yellow("no skills found")} 🐕💨 (looked for SKILL.md / *.skill.md / AGENTS.md / CLAUDE.md / .cursorrules / MCP manifests)\n`,
-        );
+
+      // Diff mode (issue #23): narrow the discovered set to only files changed
+      // vs the given ref. Runs after discovery so the glob + format filters are
+      // already applied; the intersection can only ever remove files. A bad ref
+      // or non-git dir throws → EXIT.USAGE, distinct from an empty changed set.
+      const sinceActive = opts.since !== undefined;
+      const scoped = sinceActive
+        ? narrowToChanged(files, opts.since as string | boolean)
+        : files;
+
+      if (scoped.length === 0) {
+        if (sinceActive && files.length > 0) {
+          // Discovery found skills, but none of them changed vs the ref — a
+          // clean, expected outcome for fast/pre-commit runs.
+          const ref =
+            typeof opts.since === "string" ? opts.since : "origin/main";
+          process.stdout.write(
+            `${pc.green("nothing changed to sniff")} 😴 (no skill files changed since ${ref})\n`,
+          );
+        } else {
+          process.stdout.write(
+            `${pc.yellow("no skills found")} 🐕💨 (looked for SKILL.md / *.skill.md / AGENTS.md / CLAUDE.md / .cursorrules / MCP manifests)\n`,
+          );
+        }
         setExit(program, EXIT.OK);
         return;
       }
@@ -246,13 +287,13 @@ export function buildProgram(): Command {
       // It deliberately runs before (and instead of) the lint report so authors
       // get a focused "here's what I changed" view.
       if (opts.fix) {
-        const results = await fixSkills(files, { dryRun: opts.dryRun });
+        const results = await fixSkills(scoped, { dryRun: opts.dryRun });
         process.stdout.write(renderFixResults(results, opts.dryRun ?? false));
         setExit(program, fixExitCode(results));
         return;
       }
 
-      const skills = await parseSkills(files);
+      const skills = await parseSkills(scoped);
 
       // Resolve project config (issue #8). Precedence, low → high:
       //   built-in defaults  <  .skillsnifferrc  <  CLI flags.
@@ -344,6 +385,71 @@ function renderConfigNotices(config: ResolvedConfig): string {
     lines.push(`${pc.yellow("config warning:")} ${w}`);
   }
   return lines.length ? lines.join("\n") + "\n" : "";
+}
+
+/**
+ * Resolve the changed-file subset for `--since` (issue #23).
+ *
+ * Given the already-discovered skill files (which have had the normal glob +
+ * `--include`/`--exclude` filters applied) and the raw `--since` option value,
+ * this figures out the ref, computes the git changed set relative to the repo
+ * root, resolves those to absolute paths, and intersects. The intersection
+ * guarantees only *changed, discovery-eligible* files survive.
+ *
+ * Errors are surfaced by throwing with a clear message so the CLI wrapper exits
+ * {@link EXIT.USAGE} — deliberately distinct from the "nothing changed" case,
+ * which returns an empty array (a normal exit 0 the caller reports on).
+ */
+function narrowToChanged(
+  discovered: string[],
+  sinceOpt: string | boolean,
+): string[] {
+  const ref = typeof sinceOpt === "string" ? sinceOpt : "origin/main";
+
+  // Anchor the diff at the repo root so git's repo-relative paths resolve to
+  // the same absolute paths discovery produced, regardless of cwd depth.
+  const repoRoot = gitTopLevel();
+  if (repoRoot === undefined) {
+    throw new Error(
+      `--since ${ref}: not a git repository (or any parent) — diff mode needs a git repo`,
+    );
+  }
+
+  let changed: string[];
+  try {
+    changed = changedFilesSince(ref, { cwd: repoRoot });
+  } catch (err) {
+    if (err instanceof GitError) {
+      if (err.kind === "bad-ref") {
+        throw new Error(
+          `--since ${ref}: ${err.message} — pass an existing ref (e.g. HEAD~1, a tag, or origin/main)`,
+        );
+      }
+      throw new Error(`--since ${ref}: ${err.message}`);
+    }
+    throw err;
+  }
+
+  const changedAbsolute = changed.map((p) =>
+    p.startsWith("/") ? p : resolvePath(repoRoot, p),
+  );
+  return intersectChanged(discovered, changedAbsolute);
+}
+
+/**
+ * Absolute path to the git working-tree root for the current directory, or
+ * `undefined` when not inside a repo. Used to anchor `--since` diffs so
+ * repo-relative git paths line up with discovery's absolute paths.
+ */
+function gitTopLevel(): string | undefined {
+  if (!isGitRepo()) return undefined;
+  try {
+    return execFileSync("git", ["rev-parse", "--show-toplevel"], {
+      encoding: "utf8",
+    }).trim();
+  } catch {
+    return undefined;
+  }
 }
 
 /** Stash the resolved exit code on the program for {@link run} to read. */

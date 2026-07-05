@@ -141,6 +141,34 @@ export function looksLikeSkillFile(filePath: string): boolean {
   return classifyFormat(filePath) === "skill";
 }
 
+/**
+ * Intersect a set of discovered (absolute) skill paths with a set of changed
+ * (absolute) paths, preserving discovery order. Used by `--since <ref>` (issue
+ * #23): discovery still applies the normal glob + `--include`/`--exclude`
+ * format filters, and this narrows the result to only the files git reports as
+ * changed — so an unchanged or excluded-format file is never linted.
+ *
+ * Both sides are compared as resolved absolute paths, so callers must resolve
+ * git's repo-relative output first. Returns a de-duplicated list in the same
+ * order `discovered` was given.
+ */
+export function intersectChanged(
+  discovered: readonly string[],
+  changedAbsolute: readonly string[],
+): string[] {
+  const changedSet = new Set(changedAbsolute.map((p) => resolve(p)));
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const p of discovered) {
+    const abs = resolve(p);
+    if (changedSet.has(abs) && !seen.has(abs)) {
+      seen.add(abs);
+      out.push(p);
+    }
+  }
+  return out;
+}
+
 /** Cheap heuristic for glob metacharacters. */
 function isGlob(input: string): boolean {
   return /[*?{}[\]()!]/.test(input);

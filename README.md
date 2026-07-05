@@ -58,6 +58,7 @@ npx skill-sniffer . --include skill,agents,claude  # scan only these formats
 npx skill-sniffer . --exclude mcp                  # skip MCP manifests
 npx skill-sniffer . --min-score 80    # fail CI if any skill scores under 80
 npx skill-sniffer . --max-warnings 0  # fail CI on any warning
+npx skill-sniffer . --since origin/main  # only lint skills changed vs a ref (fast CI / pre-commit)
 npx skill-sniffer --init              # write a .skillsnifferrc stub
 npx skill-sniffer . --config team.json   # use a specific config file
 npx skill-sniffer . --no-config          # ignore any .skillsnifferrc
@@ -140,6 +141,51 @@ stable, schema-versioned report for tooling:
                  "message": "…", "path": "…", "line": 11, "column": 10 }]
 }
 ```
+
+### Diff mode (`--since <ref>`) — only sniff what changed
+
+On a big kennel, re-scanning every skill on every commit is wasteful. `--since
+<ref>` lints **only the skill files that changed vs a git ref** — a three-dot
+diff (`<ref>...HEAD`), so it reflects exactly what your branch added or modified
+relative to where it forked, ignoring unrelated churn on the base. It's the fast
+path for pre-commit hooks and CI.
+
+```bash
+skill-sniffer --since HEAD~1          # what did my last commit touch?
+skill-sniffer --since origin/main .   # what does this branch change vs main?
+skill-sniffer --since                 # bare flag defaults the ref to origin/main
+```
+
+- The changed set is **intersected with normal discovery** — the usual
+  `**/SKILL.md` / `*.skill.md` (+ `--include` / `--exclude` format filters) still
+  apply, so an unchanged or excluded-format file is never linted.
+- All the usual gates (`--min-score`, `--max-warnings`) and outputs (`--json`,
+  `--sarif`) apply to the changed subset.
+- **No changed skill files** → exit `0` with a friendly *“nothing changed to
+  sniff”* note (great for pre-commit: it just no-ops when your change didn't
+  touch a skill).
+- **Not a git repo** or an **unknown ref** → a clear error and exit `2`
+  (deliberately distinct from the clean no-changes case).
+
+A minimal **pre-commit** hook that only sniffs staged-branch changes:
+
+```bash
+#!/usr/bin/env bash
+# .git/hooks/pre-commit
+exec npx skill-sniffer --since HEAD --min-score 80 .
+```
+
+And the **fast-CI** shape — sniff just the PR's changes against its base:
+
+```yaml
+- uses: actions/checkout@v4
+  with: { fetch-depth: 0 }        # need history for the diff
+- run: npx skill-sniffer --since origin/${{ github.base_ref }} . --min-score 80
+```
+
+> The bundled [GitHub Action](#github-action-pr-scores) already diffs the PR base
+> internally; `--since` brings that same changed-only speed to **local** runs and
+> hand-rolled CI. Both share one implementation under the hood.
 
 ### SARIF output (`--sarif`) — findings in the GitHub UI
 
@@ -390,6 +436,8 @@ $ node bin/skill-sniffer ./skills
 - **v0.2 — SARIF output ✅** `--sarif [path]` emits a **SARIF 2.1.0** report (backlog item #6) so findings surface natively in **GitHub code-scanning** (Security tab + inline PR annotations) via `github/codeql-action/upload-sarif`. Maps severity → SARIF level (`error`/`warning`/`note`), emits the rule registry as `reportingDescriptor`s, and uses **repo-relative** artifact URIs; findings with a line get a `region`, whole-file ones degrade to file-level. The GitHub Action gained a `sarif` input to write the file for a downstream upload step. See the [SARIF output](#sarif-output---sarif--findings-in-the-github-ui) section above.
 - **v0.2 — `explain` command ✅** `skill-sniffer explain <rule-id>` prints offline docs for a rule: id, default severity, one-line description, a longer rationale, and a colorized bad → good example. `explain` with no argument lists every registered rule for discoverability; an unknown id exits non-zero and suggests the valid ids. Zero new dependencies — the docs live alongside the rules via optional `rationale`/`example` metadata on the `Rule` contract. See [Understanding findings](#understanding-findings-explain) above.
 
+- **v0.2 — Diff mode (`--since`) ✅** `skill-sniffer --since <ref>` lints only the skill files changed vs a git ref (a three-dot `<ref>...HEAD` diff; bare `--since` defaults to `origin/main`) for fast pre-commit / CI runs. The changed set is intersected with normal discovery + `--include`/`--exclude`, so unchanged or excluded-format files are skipped; all gates and outputs apply to the subset. No changed skills exits `0` with a friendly note; a non-repo or unknown ref errors with exit `2`. The changed-files logic is shared with the GitHub Action (one implementation in `src/git.ts`). See the [Diff mode](#diff-mode---since-ref--only-sniff-what-changed) section above.
+
 The scary stuff produces error-severity findings with a redacted value and a location:
 
 ```
@@ -439,8 +487,8 @@ $ echo $?
 ```
 
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog. SARIF
-output (`--sarif`) and the `explain` command are done; diff/`--since` mode is
-next. `--fix`, config, the GitHub Action, and multi-format support are done.
+output (`--sarif`), the `explain` command, and diff/`--since` mode are done.
+`--fix`, config, the GitHub Action, and multi-format support are done too.
 
 ## License
 
