@@ -8,8 +8,15 @@
 
 export { run } from "./cli.js";
 export { getVersion } from "./version.js";
-export { discoverSkills, looksLikeSkillFile, SKILL_GLOBS } from "./discover.js";
+export { discoverSkills, looksLikeSkillFile, intersectChanged, SKILL_GLOBS } from "./discover.js";
 export type { DiscoverOptions } from "./discover.js";
+export {
+  changedFilesSince,
+  isGitRepo,
+  refExists,
+  GitError,
+} from "./git.js";
+export type { GitErrorKind, ChangedFilesOptions } from "./git.js";
 export {
   classifyFormat,
   isKnownFormat,
