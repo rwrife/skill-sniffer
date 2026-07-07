@@ -17,6 +17,12 @@ import { writeConfigStub } from "./init.js";
 import { fixSkills, type FixFileResult } from "./fix.js";
 import { loadConfig, type ResolvedConfig } from "./config.js";
 import { explain } from "./explain.js";
+import {
+  computeRanking,
+  renderRankingText,
+  renderRankingJson,
+} from "./rank.js";
+import { DEFAULT_TOKEN_BUDGET } from "./rules/token-bloat.js";
 
 /** Parsed CLI options for the sniff action. */
 interface SniffOptions {
@@ -50,6 +56,30 @@ interface SniffOptions {
    * `undefined` means "discover normally".
    */
   config?: string | false;
+}
+
+/**
+ * Parsed CLI options for the `rank` subcommand (issue #27). A deliberately
+ * small surface: it shares format selection (`include`/`exclude`) and diff
+ * scoping (`since`) with the sniff action, plus its own presentation flags.
+ */
+interface RankOptions {
+  /** Emit a machine-readable JSON ranking instead of the pretty leaderboard. */
+  json?: boolean;
+  /** Only show the heaviest `top` files (summary still covers all files). */
+  top?: number;
+  /** Token budget for the over-budget flag; defaults to the token-bloat budget. */
+  budget?: number;
+  /**
+   * Diff scoping, identical to the sniff action's `--since`: `true` for a bare
+   * flag (resolved to `origin/main`), a string for an explicit ref, `undefined`
+   * when not passed.
+   */
+  since?: string | boolean;
+  /** Only rank these agent-context formats (repeatable / comma-separated). */
+  include?: string[];
+  /** Never rank these agent-context formats (repeatable / comma-separated). */
+  exclude?: string[];
 }
 
 /**
@@ -98,7 +128,10 @@ function collectList(value: string, previous: string[] = []): string[] {
  * but surfacing them stops a typo (`--include agent`) from silently scanning
  * nothing.
  */
-function validateFormatSelectors(opts: SniffOptions): string[] {
+function validateFormatSelectors(opts: {
+  include?: string[];
+  exclude?: string[];
+}): string[] {
   const warnings: string[] = [];
   const check = (flag: string, values?: string[]) => {
     for (const raw of values ?? []) {
@@ -150,6 +183,95 @@ export function buildProgram(): Command {
         process.stdout.write(result.text);
       }
       setExit(program, result.exitCode);
+    });
+
+  // `rank [paths...]` — a headroom-style token-weight leaderboard (issue #27).
+  // Sorts discovered agent-context files heaviest-first by estimated token
+  // weight so authors can see what's eating context. It's a report, not a
+  // linter: it never gates and exits 0 on success (2 on usage error). Shares
+  // discovery, `--include`/`--exclude`, and `--since` narrowing with the root
+  // sniff action so `rank` reflects the same file set you lint.
+  program
+    .command("rank")
+    .argument("[paths...]", "file(s) or director(ies) to rank by token weight")
+    .description(
+      "list agent-context files heaviest-first by estimated token weight (offline)",
+    )
+    .option("--json", "emit a machine-readable JSON ranking instead of pretty output")
+    .option(
+      "--top <n>",
+      "only show the <n> heaviest files (the total/average still reflect all files)",
+      parseIntOption("top"),
+    )
+    .option(
+      "--budget <n>",
+      `flag files over <n> estimated tokens (default ${DEFAULT_TOKEN_BUDGET})`,
+      parseIntOption("budget"),
+    )
+    .option(
+      "--since [ref]",
+      "only rank files changed vs <ref> (three-dot diff against HEAD); defaults to origin/main",
+    )
+    .option(
+      "--include <formats>",
+      `only rank these agent-context formats (repeatable/comma-separated: ${ALL_FORMATS.join(", ")})`,
+      collectList,
+    )
+    .option(
+      "--exclude <formats>",
+      "skip these agent-context formats (repeatable/comma-separated)",
+      collectList,
+    )
+    .action(async (paths: string[], _opts: RankOptions, command: Command) => {
+      // The root (sniff) command also declares `--json`, which commander then
+      // treats as a program-level global; that shadows the `rank` subcommand's
+      // own `--json` in the plain action options. Reading options *with globals*
+      // makes the subcommand see its flag regardless of the parent's. The other
+      // flags (`--top`/`--budget`/`--since`/`--include`/`--exclude`) are unique
+      // to `rank`, so they land here normally.
+      const opts = command.optsWithGlobals() as RankOptions;
+
+      if (!paths || paths.length === 0) {
+        // `rank --since` with no path scans cwd, mirroring the sniff action.
+        paths = ["."];
+      }
+
+      const selectorWarnings = validateFormatSelectors(opts);
+      for (const w of selectorWarnings) {
+        process.stderr.write(`${pc.yellow("warning:")} ${w}\n`);
+      }
+
+      const files = await discoverSkills(paths, {
+        include: opts.include,
+        exclude: opts.exclude,
+      });
+
+      const sinceActive = opts.since !== undefined;
+      const scoped = sinceActive
+        ? narrowToChanged(files, opts.since as string | boolean)
+        : files;
+
+      const skills = await parseSkills(scoped);
+      const ranking = computeRanking(skills, {
+        top: opts.top,
+        budget: opts.budget,
+      });
+
+      if (opts.json) {
+        process.stdout.write(
+          renderRankingJson(ranking, getVersion(), {
+            totalFiles: skills.length,
+          }),
+        );
+      } else {
+        process.stdout.write(
+          renderRankingText(ranking, { totalFiles: skills.length }),
+        );
+      }
+
+      // `rank` is a report: it never gates. Success is always EXIT.OK; a bad
+      // `--since` ref throws out of narrowToChanged → EXIT.USAGE via run().
+      setExit(program, EXIT.OK);
     });
 
   program

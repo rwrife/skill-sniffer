@@ -187,6 +187,46 @@ And the **fast-CI** shape — sniff just the PR's changes against its base:
 > internally; `--since` brings that same changed-only speed to **local** runs and
 > hand-rolled CI. Both share one implementation under the hood.
 
+### Token leaderboard (`rank`) — what's eating your context?
+
+Every skill file is injected into your agent's context *verbatim, every time it
+loads* — so its size is a recurring tax on every turn. The `token-bloat` rule
+*warns* when a single file crosses a budget; `skill-sniffer rank` takes the
+complementary view and sorts **every** discovered file heaviest-first, so you
+can see at a glance which ones to trim first.
+
+```bash
+skill-sniffer rank ./skills
+```
+
+```
+  ~5212  skills/loose/SKILL.md 💩 over budget
+   ~840  skills/deploy/SKILL.md
+   ~312  skills/hello/SKILL.md
+
+3 file(s), ~6364 tokens total, ~2121 avg, 1 over the 2000 budget. Heaviest: skills/loose/SKILL.md
+```
+
+- **Same estimate as the linter.** `rank` reuses the exact chars/4 heuristic
+  `token-bloat` uses, so the two views never disagree about what "heavy" means.
+- `--top <n>` shows only the *n* heaviest rows — but the **total and average
+  still reflect every file**, so capping the list never lies about the sum.
+- `--budget <n>` sets the over-budget flag threshold (default `2000`, matching
+  `token-bloat`).
+- `--include` / `--exclude` and `--since <ref>` scope the file set exactly like
+  `sniff`, so you can rank *just what changed* on a branch.
+- `--json` emits a stable, schema-versioned (`skill-sniffer/rank@1`) payload —
+  heaviest-first `entries`, plus `total` / `average` / `overBudgetCount` /
+  `filesRanked` — for budgeting scripts and CI dashboards.
+
+```bash
+skill-sniffer rank ./skills --top 5 --json
+```
+
+`rank` is a **report, not a gate**: it never lints, never fails on a heavy file,
+and always exits `0` on success (a bad `--since` ref still exits `2`). Use it to
+spot bloat; use `sniff --min-score` to actually enforce it.
+
 ### SARIF output (`--sarif`) — findings in the GitHub UI
 
 `--json` is great for tooling, but findings still only live in logs. **SARIF
@@ -437,6 +477,8 @@ $ node bin/skill-sniffer ./skills
 - **v0.2 — `explain` command ✅** `skill-sniffer explain <rule-id>` prints offline docs for a rule: id, default severity, one-line description, a longer rationale, and a colorized bad → good example. `explain` with no argument lists every registered rule for discoverability; an unknown id exits non-zero and suggests the valid ids. Zero new dependencies — the docs live alongside the rules via optional `rationale`/`example` metadata on the `Rule` contract. See [Understanding findings](#understanding-findings-explain) above.
 
 - **v0.2 — Diff mode (`--since`) ✅** `skill-sniffer --since <ref>` lints only the skill files changed vs a git ref (a three-dot `<ref>...HEAD` diff; bare `--since` defaults to `origin/main`) for fast pre-commit / CI runs. The changed set is intersected with normal discovery + `--include`/`--exclude`, so unchanged or excluded-format files are skipped; all gates and outputs apply to the subset. No changed skills exits `0` with a friendly note; a non-repo or unknown ref errors with exit `2`. The changed-files logic is shared with the GitHub Action (one implementation in `src/git.ts`). See the [Diff mode](#diff-mode---since-ref--only-sniff-what-changed) section above.
+
+- **v0.2 — Token leaderboard (`rank`) ✅** `skill-sniffer rank [paths…]` (backlog item #8) sorts discovered agent-context files **heaviest-first** by estimated token weight, reusing the *same* chars/4 estimate as `token-bloat` so the views never drift. `--top <n>` caps the shown rows while the total/average still cover every file; `--budget <n>` sets the over-budget flag (default 2000); `--include`/`--exclude` and `--since` scope the set exactly like `sniff`; `--json` emits a schema-versioned (`skill-sniffer/rank@1`) payload. It's a report, not a gate — always exits `0` on success (a bad `--since` ref still exits `2`). See the [Token leaderboard](#token-leaderboard-rank--whats-eating-your-context) section above.
 
 The scary stuff produces error-severity findings with a redacted value and a location:
 

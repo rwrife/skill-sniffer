@@ -57,6 +57,13 @@ export {
   RC_FILENAME,
 } from "./init.js";
 export { fixContent, fixSkills, unifiedDiff } from "./fix.js";
+export {
+  computeRanking,
+  renderRankingText,
+  renderRankingJson,
+  RANK_SCHEMA,
+} from "./rank.js";
+export type { RankEntry, Ranking, RankOptions } from "./rank.js";
 export type {
   FixKind,
   FixChange,
