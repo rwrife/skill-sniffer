@@ -17,6 +17,7 @@ import { writeConfigStub } from "./init.js";
 import { fixSkills, type FixFileResult } from "./fix.js";
 import { loadConfig, type ResolvedConfig } from "./config.js";
 import { explain } from "./explain.js";
+import { startWatch } from "./watch.js";
 import {
   computeRanking,
   renderRankingText,
@@ -46,6 +47,14 @@ interface SniffOptions {
   init?: boolean;
   fix?: boolean;
   dryRun?: boolean;
+  /**
+   * Watch mode (issue #28). Keeps the process alive and re-sniffs the given
+   * path(s) on file changes, reprinting the pretty report each cycle. A stream
+   * of machine output on a clearing screen is nonsense, so `--watch` is
+   * mutually exclusive with `--json`/`--sarif`; diff mode is a one-shot CI
+   * concept, so `--since` is rejected too. Never gates: runs until Ctrl-C.
+   */
+  watch?: boolean;
   /** Only scan these agent-context formats (repeatable / comma-separated). */
   include?: string[];
   /** Never scan these agent-context formats (repeatable / comma-separated). */
@@ -316,6 +325,10 @@ export function buildProgram(): Command {
       "ignore any .skillsnifferrc and use built-in defaults",
     )
     .option(
+      "--watch",
+      "re-sniff on save: stay up and re-run on file changes (Ctrl-C to stop); incompatible with --json/--sarif/--since",
+    )
+    .option(
       "--include <formats>",
       `only scan these agent-context formats (repeatable/comma-separated: ${ALL_FORMATS.join(", ")})`,
       collectList,
@@ -346,7 +359,8 @@ export function buildProgram(): Command {
         // Diff mode with no explicit path is a common, sensible invocation
         // (`skill-sniffer --since`): default to scanning the current directory
         // rather than showing help, so it lints whatever changed under cwd.
-        if (opts.since !== undefined) {
+        // Watch mode (`skill-sniffer --watch`) defaults the same way.
+        if (opts.since !== undefined || opts.watch) {
           paths = ["."];
         } else {
           // No paths and not diff mode: show help and exit cleanly.
@@ -360,6 +374,24 @@ export function buildProgram(): Command {
         throw new Error("--dry-run requires --fix");
       }
 
+      // Watch mode (issue #28) is mutually exclusive with machine-output and
+      // diff modes: a stream of JSON/SARIF on a clearing screen is nonsense,
+      // and `--since` is a one-shot CI concept. Reject early with a clear
+      // usage error (→ EXIT.USAGE) rather than silently ignoring a flag.
+      if (opts.watch) {
+        const conflicts: string[] = [];
+        if (opts.json) conflicts.push("--json");
+        if (opts.sarif !== undefined) conflicts.push("--sarif");
+        if (opts.since !== undefined) conflicts.push("--since");
+        if (opts.fix) conflicts.push("--fix");
+        if (conflicts.length > 0) {
+          throw new Error(
+            `--watch cannot be combined with ${conflicts.join(", ")} ` +
+              `(watch is an interactive, human-only mode)`,
+          );
+        }
+      }
+
       // Two machine-readable formats can't share stdout. `--sarif` to a file is
       // fine alongside `--json`; only bare `--sarif` (stdout) conflicts.
       if (opts.json && opts.sarif === true) {
@@ -371,6 +403,15 @@ export function buildProgram(): Command {
       const selectorWarnings = validateFormatSelectors(opts);
       for (const w of selectorWarnings) {
         process.stderr.write(`${pc.yellow("warning:")} ${w}\n`);
+      }
+
+      // Watch mode (issue #28): hand off to the interactive loop, which does
+      // its own re-discovery each cycle and stays up until Ctrl-C. It never
+      // gates, so this always resolves to EXIT.OK once the user stops it.
+      if (opts.watch) {
+        await runWatch(paths, opts);
+        setExit(program, EXIT.OK);
+        return;
       }
 
       const files = await discoverSkills(paths, {
@@ -457,6 +498,40 @@ export function buildProgram(): Command {
     });
 
   return program;
+}
+
+/**
+ * Drive watch mode (issue #28) to completion. Starts the interactive watch
+ * session over `paths`, then blocks until the user interrupts (SIGINT/Ctrl-C or
+ * SIGTERM), at which point it closes every watcher and resolves cleanly. The
+ * loop itself never gates on findings — the caller sets EXIT.OK unconditionally
+ * once this returns.
+ *
+ * Kept thin: all the real logic (debounce, re-discovery, rendering) lives in
+ * `watch.ts`; this only bridges the CLI process signals to the session handle.
+ */
+async function runWatch(paths: string[], opts: SniffOptions): Promise<void> {
+  const handle = await startWatch(paths, {
+    include: opts.include,
+    exclude: opts.exclude,
+  });
+
+  await new Promise<void>((resolve) => {
+    let done = false;
+    const stop = () => {
+      if (done) return;
+      done = true;
+      process.off("SIGINT", stop);
+      process.off("SIGTERM", stop);
+      // A trailing newline so the shell prompt starts on its own line after
+      // the ^C, then tear down the watchers and resolve on clean shutdown.
+      process.stdout.write("\n");
+      handle.close();
+      handle.closed.then(resolve);
+    };
+    process.on("SIGINT", stop);
+    process.on("SIGTERM", stop);
+  });
 }
 
 /**

@@ -142,6 +142,46 @@ stable, schema-versioned report for tooling:
 }
 ```
 
+### Watch mode (`--watch`) — re-sniff on save while authoring
+
+Writing a skill is a tight loop: tweak the frontmatter, adjust a tool grant,
+trim some bloat, check the score, repeat. `--watch` collapses that from
+*“save → switch terminal → rerun”* to instant. The process stays up, watches the
+path(s) you pointed it at, and **re-sniffs on every change**, clearing the screen
+and reprinting the report + Good Boy Score™ each cycle.
+
+```bash
+skill-sniffer ./skills --watch     # sniff ./skills, then re-sniff on save
+skill-sniffer --watch              # bare flag watches the current directory
+```
+
+```text
+[watch] sniffing ./skills … (Ctrl-C to stop)
+🐕 good boy — 3 skill(s) sniffed, no scents found.  🏅 Good Boy Score™: 100/100
+[watch] waiting for changes… (Ctrl-C to stop)
+# (you save skills/loose/SKILL.md) →
+[watch] change detected — re-sniffing…
+/abs/skills/loose/SKILL.md
+  ✗ error  … missing required frontmatter field `description` (frontmatter)
+1 skill(s) sniffed — 1 error. 🐕👅 growl  🦴 Good Boy Score™: 75/100
+[watch] waiting for changes… (Ctrl-C to stop)
+```
+
+- **Never gates.** Watch is an authoring aid, not a CI check — it *never* exits
+  on findings. It runs until **Ctrl-C**, then shuts down cleanly (exit `0`),
+  closing every watcher.
+- **Re-discovers each cycle.** Added or deleted skill files are picked up
+  automatically — it watches the containing director(ies), not a frozen file
+  list, so a brand-new `SKILL.md` shows up the moment you create it.
+- **Debounced.** A single editor save often fires several filesystem events; a
+  short (~120 ms) debounce coalesces the burst into exactly one re-sniff.
+- **Respects `--include` / `--exclude` and `.skillsnifferrc`** just like a normal
+  run, so what you watch matches what you'd lint.
+- **Zero new dependencies** — it's built on Node's `fs.watch`, offline as ever.
+- **Human-only.** Streaming machine output onto a clearing screen is nonsense,
+  and diff mode is a one-shot CI concept, so `--watch` with `--json`, `--sarif`,
+  `--since`, or `--fix` is a usage error (exit `2`).
+
 ### Diff mode (`--since <ref>`) — only sniff what changed
 
 On a big kennel, re-scanning every skill on every commit is wasteful. `--since
@@ -480,6 +520,8 @@ $ node bin/skill-sniffer ./skills
 
 - **v0.2 — Token leaderboard (`rank`) ✅** `skill-sniffer rank [paths…]` (backlog item #8) sorts discovered agent-context files **heaviest-first** by estimated token weight, reusing the *same* chars/4 estimate as `token-bloat` so the views never drift. `--top <n>` caps the shown rows while the total/average still cover every file; `--budget <n>` sets the over-budget flag (default 2000); `--include`/`--exclude` and `--since` scope the set exactly like `sniff`; `--json` emits a schema-versioned (`skill-sniffer/rank@1`) payload. It's a report, not a gate — always exits `0` on success (a bad `--since` ref still exits `2`). See the [Token leaderboard](#token-leaderboard-rank--whats-eating-your-context) section above.
 
+- **v0.2 — Watch mode (`--watch`) ✅** `skill-sniffer <path> --watch` (backlog item #11) keeps the process alive and **re-sniffs on save**, clearing + reprinting the report and Good Boy Score™ each cycle to tighten the authoring loop. It re-discovers every cycle (so added/deleted skills are caught), **debounces** bursty editor writes into one re-run, and honors `--include`/`--exclude` + `.skillsnifferrc`. It never gates — it runs until Ctrl-C, then exits `0` cleanly and closes its watchers. Built on Node's `fs.watch` (zero new deps); mutually exclusive with `--json`/`--sarif`/`--since`/`--fix` (exit `2`). See the [Watch mode](#watch-mode---watch--re-sniff-on-save-while-authoring) section above.
+
 The scary stuff produces error-severity findings with a redacted value and a location:
 
 ```
@@ -529,8 +571,9 @@ $ echo $?
 ```
 
 See [`PLAN.md`](./PLAN.md) for the roadmap (M1–M6) and the v0.2+ backlog. SARIF
-output (`--sarif`), the `explain` command, and diff/`--since` mode are done.
-`--fix`, config, the GitHub Action, and multi-format support are done too.
+output (`--sarif`), the `explain` command, diff/`--since` mode, the `rank`
+leaderboard, and watch mode (`--watch`) are done. `--fix`, config, the GitHub
+Action, and multi-format support are done too.
 
 ## License
 
