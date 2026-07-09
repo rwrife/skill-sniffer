@@ -39,6 +39,7 @@ export const KNOWN_RULE_IDS = [
   "frontmatter",
   "secrets",
   "injection",
+  "provenance",
   "tool-scope",
   "broken-paths",
   "token-bloat",
