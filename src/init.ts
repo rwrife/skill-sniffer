@@ -32,6 +32,7 @@ export const DEFAULT_CONFIG = {
     frontmatter: "on",
     secrets: "on",
     injection: "on",
+    provenance: "on",
     "tool-scope": "on",
     "broken-paths": "on",
     "token-bloat": "on",

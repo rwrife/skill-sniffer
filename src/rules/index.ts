@@ -5,6 +5,7 @@ import { injectionRule } from "./injection.js";
 import { toolScopeRule } from "./tool-scope.js";
 import { brokenPathsRule } from "./broken-paths.js";
 import { tokenBloatRule } from "./token-bloat.js";
+import { provenanceRule } from "./provenance.js";
 
 /**
  * The rule registry \u2014 the single source of truth for which rules run.
@@ -13,11 +14,15 @@ import { tokenBloatRule } from "./token-bloat.js";
  * order findings are produced within a file, so keep the highest-signal rules
  * first. M4 appended the secrets + injection rules (the headline scents); M5
  * rounds out the v0.1 ruleset with tool-scope, broken-paths, and token-bloat.
+ * `provenance` (issue #33) adds supply-chain scent — opaque/unpinned remote
+ * fetches (curl|bash, `@latest`, unpinned action refs) — next to the other
+ * headline security rules, before the softer style checks.
  */
 export const rules: readonly Rule[] = [
   frontmatterRule,
   secretsRule,
   injectionRule,
+  provenanceRule,
   toolScopeRule,
   brokenPathsRule,
   tokenBloatRule,
@@ -32,6 +37,7 @@ export {
   frontmatterRule,
   secretsRule,
   injectionRule,
+  provenanceRule,
   toolScopeRule,
   brokenPathsRule,
   tokenBloatRule,

@@ -8,6 +8,7 @@ Everybody's writing agent skills (`SKILL.md` for Claude Code, Codex CLI, and fri
 
 - 🔑 **Leaked secrets** — AWS keys, `sk-...` / `ghp_...` tokens, `API_KEY=`, private-key headers.
 - 🪤 **Prompt-injection bait** — "ignore previous instructions", "you are now…", hidden/zero-width chars, sneaky instruction comments.
+- 📦 **Unpinned / opaque remote fetches** — `curl … | bash`, `npx pkg@latest`, `pip install <url>`, unpinned `uses: owner/action@main`, shortener/raw-IP fetches.
 - 🐘 **Token bloat** — estimates token weight and growls when a skill blows the budget.
 - 🔗 **Broken local paths** — resolves relative paths against the skill's own dir and flags the dead ones.
 - 📋 **Missing/malformed frontmatter** — requires `name` + `description`, sane lengths.
@@ -28,8 +29,9 @@ discovers and lints:
 | **Cursor rules** | `.cursorrules`, `.cursor/rules/**.mdc` | — none |
 | **MCP manifest** | `mcp.json`, `*.mcp.json` | — none |
 
-The format-agnostic rules — **secrets**, **injection**, **token-bloat**, and
-**broken-paths** — run on *every* format. The frontmatter `name`/`description`
+The format-agnostic rules — **secrets**, **injection**, **provenance**,
+**token-bloat**, and **broken-paths** — run on *every* format. The frontmatter
+`name`/`description`
 contract only applies to native skills; on formats that carry no frontmatter it
 degrades gracefully (no false "missing frontmatter" errors), while a genuinely
 malformed YAML block is still reported and an overlong `description` is still
@@ -404,8 +406,8 @@ clobber an existing one):
 **What you can configure**
 
 - **Enable/disable rules** by id — `false`/`"off"` turns a rule off, `true`/`"on"`
-  keeps it. Rule ids: `frontmatter`, `secrets`, `injection`, `tool-scope`,
-  `broken-paths`, `token-bloat`.
+  keeps it. Rule ids: `frontmatter`, `secrets`, `injection`, `provenance`,
+  `tool-scope`, `broken-paths`, `token-bloat`.
 - **Override severity** — give a rule a severity string (`"error"`/`"warning"`/
   `"info"`) to change how loud it is, or the object form
   `{ "enabled": true, "severity": "error" }`.
@@ -512,7 +514,8 @@ $ node bin/skill-sniffer ./skills
 - **M6 — Good Boy Score + JSON + CI gates ✅** Makes it scorable and CI-friendly. `score.ts` turns findings into a **Good Boy Score™** (0–100) per file and overall (the overall is the *minimum* per-file score, so the weakest skill sets the grade). `--json` emits a stable, schema-versioned (`skill-sniffer/report@1`) machine report. CI gates: `--min-score <n>` and `--max-warnings <n>` with proper non-zero exit codes (`0` clean, `1` gate tripped, `2` usage error); errors always fail, warnings/info only fail behind a gate. `--init` writes a `.skillsnifferrc` config stub (never clobbering an existing one).
 - **v0.2 — `--fix` auto-cleanup ✅** Mechanically rewrites the *unambiguously safe* findings: strips invisible/bidi chars, reorders frontmatter (`name`/`description` first, formatting preserved), trims trailing whitespace, and collapses redundant blank lines. Safe by construction — never rewrites prompt-injection intent or secrets — idempotent, and skips malformed YAML. `--dry-run` previews the changes as a unified diff.
 - **v0.2 — GitHub Action + PR score comment ✅** A drop-in `uses: rwrife/skill-sniffer@v1` composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
-- **v0.2 — Multi-format support ✅** Discovers and lints `AGENTS.md`, `CLAUDE.md`, `.cursorrules` / `.cursor/rules/**.mdc`, and MCP manifests (`mcp.json` / `*.mcp.json`) alongside native `SKILL.md`. Format-agnostic rules (secrets, injection, token-bloat, broken-paths) run on all of them; the frontmatter `name`/`description` contract applies to skills only and degrades gracefully elsewhere. `--include` / `--exclude` choose which formats to scan.
+- **v0.2 — Multi-format support ✅** Discovers and lints `AGENTS.md`, `CLAUDE.md`, `.cursorrules` / `.cursor/rules/**.mdc`, and MCP manifests (`mcp.json` / `*.mcp.json`) alongside native `SKILL.md`. Format-agnostic rules (secrets, injection, provenance, token-bloat, broken-paths) run on all of them; the frontmatter `name`/`description` contract applies to skills only and degrades gracefully elsewhere. `--include` / `--exclude` choose which formats to scan.
+- **v0.2 — `provenance` rule ✅** Flags the SKILL.md equivalent of an unpinned dependency: what a skill tells the agent to *fetch and run*. Errors on remote-code-execution shapes — pipe-to-shell (`curl … | bash`, `wget … | sh`, PowerShell `iwr … | iex`) and opaque fetch-and-run (`bash <(curl …)`, `sh -c "$(curl …)"`). Warns on unpinned supply-chain patterns — floating installs (`npx pkg@latest` / bare `npx pkg`, `npm i -g` without a pin, unpinned `uvx`/`pipx run`, `pip install` off a URL), unpinned GitHub Actions (`uses: owner/action@main` — full 40-hex commit SHAs pass), and sketchy fetch hosts (URL shorteners, raw-IP `http://`). Pinned equivalents (`pkg@1.2.3`, `pkg==1.2.3`, `@<sha>`, checksum-verified downloads) don't fire, keeping false positives low. Fully static/offline — it never makes the request, just flags the instruction — with line/column, scoring, all report formats, and `explain provenance`.
 - **v0.2 — SARIF output ✅** `--sarif [path]` emits a **SARIF 2.1.0** report (backlog item #6) so findings surface natively in **GitHub code-scanning** (Security tab + inline PR annotations) via `github/codeql-action/upload-sarif`. Maps severity → SARIF level (`error`/`warning`/`note`), emits the rule registry as `reportingDescriptor`s, and uses **repo-relative** artifact URIs; findings with a line get a `region`, whole-file ones degrade to file-level. The GitHub Action gained a `sarif` input to write the file for a downstream upload step. See the [SARIF output](#sarif-output---sarif--findings-in-the-github-ui) section above.
 - **v0.2 — `explain` command ✅** `skill-sniffer explain <rule-id>` prints offline docs for a rule: id, default severity, one-line description, a longer rationale, and a colorized bad → good example. `explain` with no argument lists every registered rule for discoverability; an unknown id exits non-zero and suggests the valid ids. Zero new dependencies — the docs live alongside the rules via optional `rationale`/`example` metadata on the `Rule` contract. See [Understanding findings](#understanding-findings-explain) above.
 
