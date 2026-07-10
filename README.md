@@ -184,6 +184,70 @@ skill-sniffer --watch              # bare flag watches the current directory
   and diff mode is a one-shot CI concept, so `--watch` with `--json`, `--sarif`,
   `--since`, or `--fix` is a usage error (exit `2`).
 
+### Baselining accepted debt (`baseline` / `--baseline`) — fail only on regressions
+
+The scariest supply-chain vector for skills isn't a *new* bad file — it's a
+benign `SKILL.md` that **quietly mutates** after you've already trusted it
+(adversaries change only the natural-language content while leaving the
+structure intact). Because skill-sniffer is a static linter, it's perfectly
+placed to answer the one question CI actually cares about: *"did any skill get
+more dangerous since we last blessed it?"*
+
+A **baseline** freezes a known-good state so CI fails only on **regressions**,
+not on pre-existing, already-accepted findings.
+
+```bash
+# 1. Freeze the current state as "accepted debt".
+skill-sniffer baseline .              # writes .skillsniffer-baseline.json
+skill-sniffer baseline . --out ci/skills.baseline.json
+
+# 2. Lint against it. Baselined findings drop to info; only NEW ones gate.
+skill-sniffer . --baseline            # default .skillsniffer-baseline.json
+skill-sniffer . --baseline ci/skills.baseline.json
+```
+
+What the diff does, per file:
+
+- **New findings** (not in the baseline) → reported at their real severity and
+  counted by `--max-new-findings <n>` (default `0`).
+- **Baselined findings** (present in the baseline) → downgraded to `info` and
+  tagged `[baselined]`, so accepted debt doesn't block the build.
+- **Fixed findings** (in the baseline, gone now) → reported as resolved.
+- **Score drop** beyond `--max-score-drop <n>` (default `0`) → fails.
+- **Content drift** — a file whose sha256 hash moved since the baseline is
+  flagged (`drifted`), escalated when the change *introduced* new findings. This
+  is the "it mutated" signal.
+
+The baseline captures, per file: its Good Boy Score™, a content hash, and a
+fingerprint set of its findings (`ruleId` + normalized message + line). The file
+is deterministic and pretty-printed, so it diffs cleanly in review.
+
+```bash
+# Tolerate a bounded amount of new debt (e.g. during a migration):
+skill-sniffer . --baseline --max-new-findings 3 --max-score-drop 10
+```
+
+With `--json`, the report gains a `baseline` section:
+
+```json
+{
+  "baseline": {
+    "new": 1, "fixed": 0, "baselined": 4, "drifted": 1, "scoreDelta": -25,
+    "files": [{ "path": "...", "drift": "drifted", "new": 1, "fixed": 0, "baselined": 4, "scoreDelta": -25 }]
+  }
+}
+```
+
+Gate defaults can also live in `.skillsnifferrc`:
+
+```json
+{ "baseline": { "maxNewFindings": 0, "maxScoreDrop": 0 } }
+```
+
+CLI flags override config, which overrides the built-in `0`. Baseline diffing
+complements `--since` (which picks *which files* to lint): `--baseline` tracks
+*how findings changed over time* — a different axis.
+
 ### Diff mode (`--since <ref>`) — only sniff what changed
 
 On a big kennel, re-scanning every skill on every commit is wasteful. `--since

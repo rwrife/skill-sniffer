@@ -11,6 +11,16 @@ import { runEngine } from "./engine.js";
 import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { renderJson } from "./report/json.js";
+import {
+  buildBaseline,
+  writeBaseline,
+  loadBaseline,
+  diffBaseline,
+  applyBaselineToFindings,
+  baselineJsonSection,
+  DEFAULT_BASELINE_FILE,
+  type BaselineDiff,
+} from "./baseline.js";
 import { renderSarif } from "./report/sarif.js";
 import { writeFileSync } from "node:fs";
 import { writeConfigStub } from "./init.js";
@@ -47,6 +57,17 @@ interface SniffOptions {
   init?: boolean;
   fix?: boolean;
   dryRun?: boolean;
+  /**
+   * Baseline diff mode (issue #32). `true` for bare `--baseline` (default file
+   * `.skillsniffer-baseline.json`), a string for an explicit path, `undefined`
+   * when not passed. Lint findings already in the baseline are downgraded to
+   * `info`; only new findings gate CI.
+   */
+  baseline?: string | boolean;
+  /** Gate: fail if new (non-baselined) findings exceed <n> (default 0). */
+  maxNewFindings?: number;
+  /** Gate: fail if any file's score drops more than <n> below baseline. */
+  maxScoreDrop?: number;
   /**
    * Watch mode (issue #28). Keeps the process alive and re-sniffs the given
    * path(s) on file changes, reprinting the pretty report each cycle. A stream
@@ -283,6 +304,93 @@ export function buildProgram(): Command {
       setExit(program, EXIT.OK);
     });
 
+  // `baseline [paths...]` — freeze a known-good state (issue #32). Lints the
+  // discovered files, then writes a deterministic snapshot (per file: score,
+  // content hash, finding fingerprints) so future `--baseline` runs gate only
+  // on *regressions*, not pre-existing accepted debt. Reuses discovery,
+  // `--include`/`--exclude`, and config exactly like the sniff action.
+  program
+    .command("baseline")
+    .argument("[paths...]", "skill file(s) or director(ies) to snapshot")
+    .description(
+      "freeze a known-good baseline of current findings/scores (offline)",
+    )
+    .option(
+      "--out <file>",
+      `write the baseline to <file> (default ${DEFAULT_BASELINE_FILE})`,
+    )
+    .option(
+      "--include <formats>",
+      `only scan these agent-context formats (repeatable/comma-separated: ${ALL_FORMATS.join(", ")})`,
+      collectList,
+    )
+    .option(
+      "--exclude <formats>",
+      "skip these agent-context formats (repeatable/comma-separated)",
+      collectList,
+    )
+    .option(
+      "--config <path>",
+      `use a specific ${".skillsnifferrc"} file instead of discovering one`,
+    )
+    .option("--no-config", "ignore any .skillsnifferrc and use built-in defaults")
+    .action(
+      async (
+        paths: string[],
+        _opts: unknown,
+        command: Command,
+      ) => {
+        const opts = command.optsWithGlobals() as {
+          out?: string;
+          include?: string[];
+          exclude?: string[];
+          config?: string | false;
+        };
+        if (!paths || paths.length === 0) paths = ["."];
+
+        const selectorWarnings = validateFormatSelectors(opts);
+        for (const w of selectorWarnings) {
+          process.stderr.write(`${pc.yellow("warning:")} ${w}\n`);
+        }
+
+        const files = await discoverSkills(paths, {
+          include: opts.include,
+          exclude: opts.exclude,
+        });
+        if (files.length === 0) {
+          process.stdout.write(
+            `${pc.yellow("no skills found")} 🐕💨 (nothing to baseline)\n`,
+          );
+          setExit(program, EXIT.OK);
+          return;
+        }
+
+        const skills = await parseSkills(files);
+        const config = loadConfig(paths, {
+          explicitPath:
+            typeof opts.config === "string" ? opts.config : undefined,
+          enabled: opts.config !== false,
+        });
+        const report = runEngine(skills, { config });
+        const scored = scoreReport(
+          report,
+          skills.map((s) => s.path),
+        );
+        const raws: Record<string, string> = {};
+        for (const s of skills) raws[s.path] = s.raw;
+
+        const baseline = buildBaseline(scored, raws, getVersion());
+        const outPath = opts.out ?? DEFAULT_BASELINE_FILE;
+        writeBaseline(outPath, baseline);
+
+        const fileCount = Object.keys(baseline.files).length;
+        process.stdout.write(
+          `${pc.green("baselined")} ${fileCount} file(s) → ${outPath} 🦴 (accepted debt frozen)\n`,
+        );
+        setExit(program, EXIT.OK);
+      },
+    );
+
   program
     .argument("[paths...]", "skill file(s) or director(ies) to sniff")
     .option("--json", "emit a machine-readable JSON report instead of pretty output")
@@ -303,6 +411,20 @@ export function buildProgram(): Command {
     .option(
       "--since [ref]",
       "only lint skill files changed vs <ref> (three-dot diff against HEAD); defaults to origin/main when no ref is given",
+    )
+    .option(
+      "--baseline [file]",
+      `diff findings against a baseline (default ${DEFAULT_BASELINE_FILE}); baselined findings drop to info, only new ones gate`,
+    )
+    .option(
+      "--max-new-findings <n>",
+      "with --baseline, exit non-zero if new (non-baselined) findings exceed <n> (default 0)",
+      parseIntOption("max-new-findings"),
+    )
+    .option(
+      "--max-score-drop <n>",
+      "with --baseline, exit non-zero if any file's score drops more than <n> below baseline (default 0)",
+      parseIntOption("max-score-drop"),
     )
     .option(
       "--init",
@@ -472,13 +594,33 @@ export function buildProgram(): Command {
         skills.map((s) => s.path),
       );
 
+      // Baseline diff (issue #32). When active, downgrade already-accepted
+      // findings to info before reporting/gating, and surface new/fixed/drift.
+      let baselineDiff: BaselineDiff | undefined;
+      let effectiveScored = scored;
+      if (opts.baseline !== undefined) {
+        const baselinePath =
+          typeof opts.baseline === "string"
+            ? opts.baseline
+            : DEFAULT_BASELINE_FILE;
+        const baseline = loadBaseline(baselinePath); // throws → EXIT.USAGE
+        const raws: Record<string, string> = {};
+        for (const s of skills) raws[s.path] = s.raw;
+        baselineDiff = diffBaseline(scored, raws, baseline);
+        const applied = applyBaselineToFindings(scored.findings, baselineDiff);
+        effectiveScored = scoreReport(
+          { ...report, findings: applied.findings, counts: applied.counts },
+          skills.map((s) => s.path),
+        );
+      }
+
       // SARIF output (issue #21). When a path is given, write there and still
       // print the human/JSON report to stdout; a bare `--sarif` streams SARIF
       // to stdout instead of the pretty/JSON report.
       const sarifToFile = typeof opts.sarif === "string";
       const sarifToStdout = opts.sarif === true;
       if (sarifToFile) {
-        const sarif = renderSarif(scored.findings, getVersion());
+        const sarif = renderSarif(effectiveScored.findings, getVersion());
         writeFileSync(opts.sarif as string, sarif, "utf8");
         process.stderr.write(
           `${pc.dim(`\u2192 wrote SARIF to ${opts.sarif as string}`)}\n`,
@@ -486,15 +628,34 @@ export function buildProgram(): Command {
       }
 
       if (sarifToStdout) {
-        process.stdout.write(renderSarif(scored.findings, getVersion()));
+        process.stdout.write(renderSarif(effectiveScored.findings, getVersion()));
       } else if (opts.json) {
-        process.stdout.write(renderJson(scored, getVersion()));
+        process.stdout.write(
+          renderJson(
+            effectiveScored,
+            getVersion(),
+            true,
+            baselineDiff ? baselineJsonSection(baselineDiff) : undefined,
+          ),
+        );
       } else {
         process.stdout.write(renderConfigNotices(config));
-        process.stdout.write(renderPretty(scored));
+        process.stdout.write(renderPretty(effectiveScored));
+        if (baselineDiff) {
+          process.stdout.write(renderBaselineNotices(baselineDiff));
+        }
       }
 
-      setExit(program, gateExitCode(scored.counts.error, scored, opts, config));
+      setExit(
+        program,
+        gateExitCode(
+          effectiveScored.counts.error,
+          effectiveScored,
+          opts,
+          config,
+          baselineDiff,
+        ),
+      );
     });
 
   return program;
@@ -553,9 +714,24 @@ function gateExitCode(
   scored: { score: number; counts: { warning: number } },
   opts: SniffOptions,
   config: ResolvedConfig,
+  baselineDiff?: BaselineDiff,
 ): number {
   const minScore = opts.minScore ?? config.minScore;
   const maxWarnings = opts.maxWarnings ?? config.maxWarnings;
+
+  // Baseline gates (issue #32) fully own pass/fail when a baseline is active:
+  // accepted debt is downgraded to info, so the only things that should gate
+  // are *regressions* — new findings and score drops. The generic
+  // error/min-score/max-warnings gates are bypassed so `--max-new-findings`
+  // can deliberately tolerate a bounded number of new (error-severity) scents.
+  if (baselineDiff) {
+    const maxNew = opts.maxNewFindings ?? config.baselineMaxNewFindings ?? 0;
+    const maxDrop = opts.maxScoreDrop ?? config.baselineMaxScoreDrop ?? 0;
+    if (baselineDiff.totalNew > maxNew) return EXIT.FINDINGS;
+    // worstScoreDrop is <= 0; a drop of D means the score fell |D|.
+    if (-baselineDiff.worstScoreDrop > maxDrop) return EXIT.FINDINGS;
+    return EXIT.OK;
+  }
 
   if (errorCount > 0) return EXIT.FINDINGS;
   if (minScore !== undefined && scored.score < minScore) {
@@ -564,7 +740,48 @@ function gateExitCode(
   if (maxWarnings !== undefined && scored.counts.warning > maxWarnings) {
     return EXIT.FINDINGS;
   }
+
   return EXIT.OK;
+}
+
+/**
+ * Render a short, human-facing summary of a baseline diff (issue #32): the
+ * new/baselined/fixed tallies, any content drift, and the worst score drop.
+ * Kept terse so it rides below the pretty report without drowning it.
+ */
+function renderBaselineNotices(diff: BaselineDiff): string {
+  const lines: string[] = [];
+  const parts: string[] = [];
+  parts.push(
+    diff.totalNew > 0
+      ? pc.red(`${diff.totalNew} new`)
+      : pc.green("0 new"),
+  );
+  parts.push(pc.dim(`${diff.totalBaselined} baselined`));
+  if (diff.totalFixed > 0) parts.push(pc.green(`${diff.totalFixed} fixed`));
+  if (diff.totalDrifted > 0) {
+    parts.push(pc.yellow(`${diff.totalDrifted} drifted`));
+  }
+  lines.push(`${pc.bold("baseline:")} ${parts.join(pc.dim(", "))}`);
+
+  // Call out drifted files explicitly — the "it mutated" signal.
+  for (const f of diff.perFile) {
+    if (f.drift === "drifted") {
+      const added = f.newFindings.length;
+      const tag =
+        added > 0
+          ? pc.yellow(`drifted (+${added} new finding${added === 1 ? "" : "s"})`)
+          : pc.dim("drifted since baseline");
+      lines.push(`  ${pc.dim("\u2022")} ${f.path} — ${tag}`);
+    }
+    if (f.scoreDelta < 0) {
+      lines.push(
+        `  ${pc.dim("\u2022")} ${f.path} — ${pc.red(`score ${f.scoreDelta} (${f.baselineScore} → ${f.currentScore})`)}`,
+      );
+    }
+  }
+
+  return lines.join("\n") + "\n";
 }
 
 /**

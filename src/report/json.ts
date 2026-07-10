@@ -1,4 +1,5 @@
 import type { Finding, ScoredReport } from "../types.js";
+import type { BaselineJsonSection } from "../baseline.js";
 
 /**
  * skill-sniffer 🐕👃 — machine-readable JSON report (`--json`).
@@ -38,8 +39,9 @@ export function renderJson(
   report: ScoredReport,
   version: string,
   pretty = true,
+  baseline?: BaselineJsonSection,
 ): string {
-  const payload = {
+  const payload: Record<string, unknown> = {
     schema: REPORT_SCHEMA,
     version,
     score: report.score,
@@ -52,6 +54,9 @@ export function renderJson(
     })),
     findings: report.findings.map(serializeFinding),
   };
+
+  // Only present when linting with `--baseline` (issue #32).
+  if (baseline) payload.baseline = baseline;
 
   return JSON.stringify(payload, null, pretty ? 2 : 0) + "\n";
 }
