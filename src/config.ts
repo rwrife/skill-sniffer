@@ -69,6 +69,8 @@ export interface RawConfig {
   minScore?: number;
   maxWarnings?: number;
   rules?: Record<string, RuleSetting>;
+  /** Baseline-diff gate defaults (issue #32). */
+  baseline?: { maxNewFindings?: number; maxScoreDrop?: number };
   /** Tolerated and ignored — lets the stub advertise a schema id. */
   $schema?: string;
 }
@@ -94,6 +96,12 @@ export interface ResolvedConfig {
   minScore?: number;
   /** `undefined` means "no max-warnings gate" (default). */
   maxWarnings?: number;
+  /**
+   * Baseline-diff gate defaults (issue #32). `undefined` means "no default"
+   * (falls back to the built-in 0). CLI flags still override these.
+   */
+  baselineMaxNewFindings?: number;
+  baselineMaxScoreDrop?: number;
   /** Per-rule resolution keyed by rule id. Missing id ⇒ rule runs as default. */
   rules: Record<string, ResolvedRuleConfig>;
   /** Absolute path the config was loaded from, if any. */
@@ -108,6 +116,8 @@ export function defaultConfig(): ResolvedConfig {
     tokenBudget: DEFAULT_TOKEN_BUDGET,
     minScore: undefined,
     maxWarnings: undefined,
+    baselineMaxNewFindings: undefined,
+    baselineMaxScoreDrop: undefined,
     rules: {},
     sourcePath: undefined,
     warnings: [],
@@ -260,6 +270,41 @@ export function normalizeConfig(
       // A negative value (e.g. the stub's -1 default) is the documented
       // "disable" sentinel — valid, install no gate and stay silent.
       cfg.maxWarnings = n;
+    }
+  }
+
+  // --- baseline gate defaults (issue #32) ---------------------------------
+  if (raw.baseline !== undefined) {
+    if (
+      typeof raw.baseline !== "object" ||
+      raw.baseline === null ||
+      Array.isArray(raw.baseline)
+    ) {
+      warnings.push(
+        `ignoring "baseline": expected an object, got ${describeType(raw.baseline)}`,
+      );
+    } else {
+      const { maxNewFindings, maxScoreDrop } = raw.baseline;
+      if (maxNewFindings !== undefined) {
+        const n = asInt(maxNewFindings);
+        if (n === undefined || n < 0) {
+          warnings.push(
+            `ignoring "baseline.maxNewFindings": expected an integer ≥ 0, got ${describeType(maxNewFindings)}`,
+          );
+        } else {
+          cfg.baselineMaxNewFindings = n;
+        }
+      }
+      if (maxScoreDrop !== undefined) {
+        const n = asInt(maxScoreDrop);
+        if (n === undefined || n < 0) {
+          warnings.push(
+            `ignoring "baseline.maxScoreDrop": expected an integer ≥ 0, got ${describeType(maxScoreDrop)}`,
+          );
+        } else {
+          cfg.baselineMaxScoreDrop = n;
+        }
+      }
     }
   }
 
