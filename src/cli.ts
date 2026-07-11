@@ -2,7 +2,19 @@ import { Command } from "commander";
 import pc from "picocolors";
 import { getVersion } from "./version.js";
 import { discoverSkills, intersectChanged } from "./discover.js";
-import { changedFilesSince, GitError, isGitRepo } from "./git.js";
+import {
+  changedFilesSince,
+  stagedFiles,
+  GitError,
+  isGitRepo,
+} from "./git.js";
+import {
+  installHook,
+  uninstallHook,
+  HookError,
+  type InstallResult,
+  type UninstallResult,
+} from "./hook.js";
 import { execFileSync } from "node:child_process";
 import { resolve as resolvePath } from "node:path";
 import { canonicalFormat, ALL_FORMATS } from "./format.js";
@@ -54,6 +66,13 @@ interface SniffOptions {
    * explicit ref. `undefined` means the flag wasn't passed.
    */
   since?: string | boolean;
+  /**
+   * Staged mode (issue #34). Narrows the linted set to files currently staged
+   * for commit (`git diff --cached`), the file set a pre-commit hook cares
+   * about. Mutually exclusive with `--since` (a ref diff) since they answer
+   * different questions. This is what the installed hook invokes.
+   */
+  staged?: boolean;
   init?: boolean;
   fix?: boolean;
   dryRun?: boolean;
@@ -213,6 +232,47 @@ export function buildProgram(): Command {
         process.stdout.write(result.text);
       }
       setExit(program, result.exitCode);
+    });
+
+  // `install-hook` — the git pre-commit gate (issue #34). Writes (or refreshes)
+  // a self-contained, marker-delimited block into `.git/hooks/pre-commit` that
+  // lints only staged skill/agent files before every commit. `--uninstall`
+  // removes just that block; existing hook content is always preserved.
+  program
+    .command("install-hook")
+    .description(
+      "install a git pre-commit hook that sniffs staged skill files before every commit (offline)",
+    )
+    .option(
+      "--uninstall",
+      "remove only the skill-sniffer pre-commit block, leaving any other hook content intact",
+    )
+    .option(
+      "--force",
+      "overwrite an existing (hand-edited or older) skill-sniffer block instead of erroring",
+    )
+    .action((opts: { uninstall?: boolean; force?: boolean }) => {
+      try {
+        if (opts.uninstall) {
+          const res: UninstallResult = uninstallHook();
+          process.stdout.write(renderUninstall(res));
+        } else {
+          const res: InstallResult = installHook({ force: opts.force });
+          process.stdout.write(renderInstall(res));
+        }
+        setExit(program, EXIT.OK);
+      } catch (err) {
+        if (err instanceof HookError) {
+          const hint =
+            err.kind === "conflict"
+              ? ` ${pc.dim("(re-run with --force to regenerate)")}`
+              : "";
+          process.stderr.write(`${pc.red("error:")} ${err.message}${hint}\n`);
+          setExit(program, EXIT.USAGE);
+          return;
+        }
+        throw err;
+      }
     });
 
   // `rank [paths...]` — a headroom-style token-weight leaderboard (issue #27).
@@ -413,6 +473,10 @@ export function buildProgram(): Command {
       "only lint skill files changed vs <ref> (three-dot diff against HEAD); defaults to origin/main when no ref is given",
     )
     .option(
+      "--staged",
+      "only lint skill files currently staged for commit (git diff --cached); what the pre-commit hook uses",
+    )
+    .option(
       "--baseline [file]",
       `diff findings against a baseline (default ${DEFAULT_BASELINE_FILE}); baselined findings drop to info, only new ones gate`,
     )
@@ -482,7 +546,7 @@ export function buildProgram(): Command {
         // (`skill-sniffer --since`): default to scanning the current directory
         // rather than showing help, so it lints whatever changed under cwd.
         // Watch mode (`skill-sniffer --watch`) defaults the same way.
-        if (opts.since !== undefined || opts.watch) {
+        if (opts.since !== undefined || opts.watch || opts.staged) {
           paths = ["."];
         } else {
           // No paths and not diff mode: show help and exit cleanly.
@@ -536,6 +600,15 @@ export function buildProgram(): Command {
         return;
       }
 
+      // --since and --staged both narrow the set but answer different
+      // questions (a ref diff vs the index); rejecting the combination early
+      // keeps the semantics unambiguous.
+      if (opts.staged && opts.since !== undefined) {
+        throw new Error(
+          "--staged and --since are mutually exclusive (one diffs the index, the other a ref)",
+        );
+      }
+
       const files = await discoverSkills(paths, {
         include: opts.include,
         exclude: opts.exclude,
@@ -546,12 +619,20 @@ export function buildProgram(): Command {
       // already applied; the intersection can only ever remove files. A bad ref
       // or non-git dir throws → EXIT.USAGE, distinct from an empty changed set.
       const sinceActive = opts.since !== undefined;
-      const scoped = sinceActive
-        ? narrowToChanged(files, opts.since as string | boolean)
-        : files;
+      const scoped = opts.staged
+        ? narrowToStaged(files)
+        : sinceActive
+          ? narrowToChanged(files, opts.since as string | boolean)
+          : files;
 
       if (scoped.length === 0) {
-        if (sinceActive && files.length > 0) {
+        if (opts.staged && files.length > 0) {
+          // Skills exist but none are staged — the common, clean pre-commit
+          // outcome (you're committing unrelated files).
+          process.stdout.write(
+            `${pc.green("nothing staged to sniff")} 😴 (no skill files staged for commit)\n`,
+          );
+        } else if (sinceActive && files.length > 0) {
           // Discovery found skills, but none of them changed vs the ref — a
           // clean, expected outcome for fast/pre-commit runs.
           const ref =
@@ -802,6 +883,38 @@ function renderConfigNotices(config: ResolvedConfig): string {
 }
 
 /**
+ * Resolve the staged-file subset for `--staged` (issue #34). Mirrors
+ * {@link narrowToChanged} but sources the file set from the git index
+ * (`git diff --cached`) rather than a ref diff — the exact set a pre-commit
+ * hook is about to commit. Throws with a clear message (→ {@link EXIT.USAGE})
+ * outside a git repo; an empty intersection is the normal "nothing staged"
+ * exit-0 case the caller reports on.
+ */
+function narrowToStaged(discovered: string[]): string[] {
+  const repoRoot = gitTopLevel();
+  if (repoRoot === undefined) {
+    throw new Error(
+      "--staged: not a git repository (or any parent) — staged mode needs a git repo",
+    );
+  }
+
+  let staged: string[];
+  try {
+    staged = stagedFiles({ cwd: repoRoot });
+  } catch (err) {
+    if (err instanceof GitError) {
+      throw new Error(`--staged: ${err.message}`);
+    }
+    throw err;
+  }
+
+  const stagedAbsolute = staged.map((p) =>
+    p.startsWith("/") ? p : resolvePath(repoRoot, p),
+  );
+  return intersectChanged(discovered, stagedAbsolute);
+}
+
+/**
  * Resolve the changed-file subset for `--since` (issue #23).
  *
  * Given the already-discovered skill files (which have had the normal glob +
@@ -933,6 +1046,38 @@ function renderFixResults(results: FixFileResult[], dryRun: boolean): string {
   out.push(`\n${parts.join(pc.dim(", "))}${tail}`);
 
   return out.join("\n") + "\n";
+}
+
+/**
+ * Render the outcome of an `install-hook` install/refresh for humans (issue
+ * #34): what happened to the hook file, and a one-line reminder of what the
+ * managed block does.
+ */
+function renderInstall(res: InstallResult): string {
+  const path = pc.bold(res.path);
+  switch (res.action) {
+    case "created":
+      return `${pc.green("installed")} pre-commit hook → ${path} 🐕 (sniffs staged skills before each commit)\n`;
+    case "appended":
+      return `${pc.green("added")} skill-sniffer block to existing hook → ${path} 🦴 (your other hook steps are preserved)\n`;
+    case "updated":
+      return `${pc.green("refreshed")} skill-sniffer block → ${path} 🐕 (regenerated to the current template)\n`;
+    case "unchanged":
+      return `${pc.dim("already up to date")} — ${path} — left untouched\n`;
+  }
+}
+
+/** Render the outcome of an `install-hook --uninstall` for humans (issue #34). */
+function renderUninstall(res: UninstallResult): string {
+  const path = pc.bold(res.path);
+  switch (res.action) {
+    case "removed":
+      return `${pc.green("removed")} skill-sniffer block from ${path} 🦴 (any other hook content kept)\n`;
+    case "absent":
+      return `${pc.yellow("no pre-commit hook")} at ${path} — nothing to remove\n`;
+    case "no-block":
+      return `${pc.yellow("no skill-sniffer block")} in ${path} — left untouched\n`;
+  }
 }
 
 /** Apply red/green coloring to +/- lines of a unified diff for readability. */

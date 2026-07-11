@@ -12,6 +12,7 @@ export { discoverSkills, looksLikeSkillFile, intersectChanged, SKILL_GLOBS } fro
 export type { DiscoverOptions } from "./discover.js";
 export {
   changedFilesSince,
+  stagedFiles,
   isGitRepo,
   refExists,
   GitError,
@@ -56,6 +57,20 @@ export {
   DEFAULT_CONFIG,
   RC_FILENAME,
 } from "./init.js";
+export {
+  installHook,
+  uninstallHook,
+  managedBlock,
+  HookError,
+  HOOK_MARKER_START,
+  HOOK_MARKER_END,
+} from "./hook.js";
+export type {
+  HookOptions,
+  HookErrorKind,
+  InstallResult,
+  UninstallResult,
+} from "./hook.js";
 export { fixContent, fixSkills, unifiedDiff } from "./fix.js";
 export {
   computeRanking,

@@ -195,6 +195,60 @@ export function changedFilesSince(
   return splitPaths(raw);
 }
 
+/**
+ * Return the repo-relative paths of files currently **staged** for commit
+ * (i.e. present in the index vs `HEAD`), filtered to Added/Copied/Modified/
+ * Renamed — deletions are dropped since there's nothing left on disk to lint.
+ * This is the pre-commit gate's file set: it lints exactly what's about to be
+ * committed, not the working tree at large.
+ *
+ * Unlike {@link changedFilesSince} this needs no ref and works in a repo with
+ * no commits yet (`git diff --cached` against the empty tree just lists every
+ * staged add). Paths are exactly as git prints them (POSIX-style, repo-
+ * relative); callers resolve them to absolute.
+ *
+ * Throws {@link GitError} with a precise `kind`:
+ *  - `git-missing` — git not installed.
+ *  - `not-a-repo`  — `cwd` isn't a git working tree.
+ *
+ * An empty return array means "nothing relevant is staged" — a normal,
+ * non-error outcome a pre-commit hook handles as a friendly exit 0.
+ */
+export function stagedFiles(options: ChangedFilesOptions = {}): string[] {
+  const cwd = options.cwd ?? process.cwd();
+  const runGit = options.runGit ?? defaultRunGit;
+
+  if (!isGitRepo(cwd, runGit)) {
+    throw new GitError(
+      "not-a-repo",
+      `not a git repository (or any parent): ${cwd}`,
+    );
+  }
+
+  const diffArgs = [
+    "diff",
+    "--cached",
+    "--name-only",
+    "--diff-filter=ACMR",
+  ];
+
+  try {
+    return splitPaths(runGit(diffArgs, cwd));
+  } catch (err) {
+    const kind = classifyGitError(err);
+    if (kind === "git-missing") {
+      throw new GitError("git-missing", "git is not installed or not on PATH");
+    }
+    if (kind === "not-a-repo") {
+      throw new GitError(
+        "not-a-repo",
+        `not a git repository (or any parent): ${cwd}`,
+      );
+    }
+    throw new GitError("git-error", "git diff --cached failed");
+  }
+}
+
 /** Build a {@link GitError} with a helpful message for a given kind. */
 function toGitError(kind: GitErrorKind, ref: string, cwd: string): GitError {
   switch (kind) {

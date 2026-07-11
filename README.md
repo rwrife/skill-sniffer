@@ -293,6 +293,64 @@ And the **fast-CI** shape — sniff just the PR's changes against its base:
 > internally; `--since` brings that same changed-only speed to **local** runs and
 > hand-rolled CI. Both share one implementation under the hood.
 
+### Run it on every commit (`install-hook`) — the gate at the door
+
+skill-sniffer's whole personality is *the dog at the door you walk past every
+day* — a 2-second check **before** a bad skill ships. The GitHub Action guards
+CI; the pre-commit hook guards your desk. One command wires it up:
+
+```bash
+skill-sniffer install-hook          # writes .git/hooks/pre-commit
+```
+
+The installed hook lints **only your staged** skill/agent files
+(`skill-sniffer --staged`, i.e. `git diff --cached`) and blocks the commit on
+`error`s or a failed `--min-score` (it respects your `.skillsnifferrc`). Commit
+unrelated files and it stays silent.
+
+It's a good citizen about existing hooks. If you already have a
+`.git/hooks/pre-commit`, skill-sniffer **appends** its block behind clear
+markers and never touches the rest:
+
+```sh
+#!/bin/sh
+npm run lint            # ← your existing steps, untouched
+
+# >>> skill-sniffer >>>
+# ...managed block: lints staged skills, aborts the commit on findings...
+# <<< skill-sniffer <<<
+```
+
+```bash
+skill-sniffer install-hook --uninstall   # removes ONLY our marker block
+skill-sniffer install-hook --force        # regenerate a stale/edited block
+```
+
+`--staged` is a first-class flag, so you can also dry-run what the hook will do:
+
+```bash
+git add my-skill/SKILL.md
+skill-sniffer --staged                    # exactly what the hook runs
+```
+
+#### Or use the `pre-commit` framework
+
+If your repo already uses [pre-commit](https://pre-commit.com), skill-sniffer
+ships a `.pre-commit-hooks.yaml` manifest. Add it to your
+`.pre-commit-config.yaml`:
+
+```yaml
+- repo: https://github.com/rwrife/skill-sniffer
+  rev: v0.1.0            # pin to a released tag
+  hooks:
+    - id: skill-sniffer
+```
+
+The manifest's `files:` glob scopes it to every supported format
+(`SKILL.md`, `*.skill.md`, `AGENTS.md`, `CLAUDE.md`, `.cursorrules`,
+`*.mcp.json`), and the framework passes the matched staged files straight to the
+linter.
+
 ### Token leaderboard (`rank`) — what's eating your context?
 
 Every skill file is injected into your agent's context *verbatim, every time it
