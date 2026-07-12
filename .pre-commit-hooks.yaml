@@ -1,0 +1,20 @@
+# skill-sniffer 🐕👃 — pre-commit framework manifest (issue #34)
+#
+# Lets users of the `pre-commit` framework (https://pre-commit.com) wire
+# skill-sniffer into their hooks with a few lines in .pre-commit-config.yaml:
+#
+#   - repo: https://github.com/rwrife/skill-sniffer
+#     rev: v0.1.0
+#     hooks:
+#       - id: skill-sniffer
+#
+# The framework passes the staged filenames pre-commit selected (via `files`)
+# as arguments, so we lint exactly those. `pass_filenames: true` (the default)
+# plus the `files:` glob below keeps us scoped to agent-context files only.
+- id: skill-sniffer
+  name: skill-sniffer (sniff agent skill files)
+  description: Lint staged SKILL.md / AGENTS.md / CLAUDE.md / .cursorrules / MCP manifests for secrets, injection bait, token bloat, broken paths, and over-broad tool grants.
+  entry: skill-sniffer
+  language: node
+  files: '(?:^|/)(SKILL\.md|AGENTS\.md|CLAUDE\.md|\.cursorrules)$|\.skill\.md$|\.mcp\.json$'
+  pass_filenames: true
