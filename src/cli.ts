@@ -46,6 +46,11 @@ import {
   renderRankingJson,
 } from "./rank.js";
 import { DEFAULT_TOKEN_BUDGET } from "./rules/token-bloat.js";
+import {
+  buildBadge,
+  renderBadgeJson,
+  DEFAULT_BADGE_LABEL,
+} from "./badge.js";
 
 /** Parsed CLI options for the sniff action. */
 interface SniffOptions {
@@ -447,6 +452,88 @@ export function buildProgram(): Command {
         process.stdout.write(
           `${pc.green("baselined")} ${fileCount} file(s) → ${outPath} 🦴 (accepted debt frozen)\n`,
         );
+        setExit(program, EXIT.OK);
+      },
+    );
+
+  // `badge [paths...]` — a shields.io endpoint badge (issue #38, PLAN §8.12).
+  // Lints the discovered files exactly like the sniff action, then emits the
+  // overall Good Boy Score™ as a shields endpoint JSON payload
+  // ({schemaVersion,label,message,color}) to stdout, or to `--out <file>` for
+  // committing as an endpoint badge source. No new scoring logic: it reuses
+  // score.ts and only maps the score onto shields label/message/color.
+  program
+    .command("badge")
+    .argument("[paths...]", "skill file(s) or director(ies) to score for the badge")
+    .description(
+      "emit a shields.io endpoint badge JSON for the overall Good Boy Score™ (offline)",
+    )
+    .option("--out <file>", "write the badge JSON to <file> instead of stdout")
+    .option(
+      "--label <text>",
+      `override the badge label (default "${DEFAULT_BADGE_LABEL}")`,
+    )
+    .option(
+      "--include <formats>",
+      `only scan these agent-context formats (repeatable/comma-separated: ${ALL_FORMATS.join(", ")})`,
+      collectList,
+    )
+    .option(
+      "--exclude <formats>",
+      "skip these agent-context formats (repeatable/comma-separated)",
+      collectList,
+    )
+    .option(
+      "--config <path>",
+      `use a specific ${".skillsnifferrc"} file instead of discovering one`,
+    )
+    .option("--no-config", "ignore any .skillsnifferrc and use built-in defaults")
+    .action(
+      async (paths: string[], _opts: unknown, command: Command) => {
+        const opts = command.optsWithGlobals() as {
+          out?: string;
+          label?: string;
+          include?: string[];
+          exclude?: string[];
+          config?: string | false;
+        };
+        if (!paths || paths.length === 0) paths = ["."];
+
+        const selectorWarnings = validateFormatSelectors(opts);
+        for (const w of selectorWarnings) {
+          process.stderr.write(`${pc.yellow("warning:")} ${w}\n`);
+        }
+
+        const files = await discoverSkills(paths, {
+          include: opts.include,
+          exclude: opts.exclude,
+        });
+
+        // No skills found → a clean, vacuous 100 (scoreReport's empty case).
+        // The badge should still be emittable so CI can commit it regardless.
+        const skills = await parseSkills(files);
+        const config = loadConfig(paths, {
+          explicitPath:
+            typeof opts.config === "string" ? opts.config : undefined,
+          enabled: opts.config !== false,
+        });
+        const report = runEngine(skills, { config });
+        const scored = scoreReport(
+          report,
+          skills.map((s) => s.path),
+        );
+
+        const badge = buildBadge(scored.score, opts.label);
+        const json = renderBadgeJson(badge);
+
+        if (opts.out) {
+          writeFileSync(opts.out, json, "utf8");
+          process.stderr.write(
+            `${pc.green("badge")} ${badge.message} → ${opts.out} 🦴\n`,
+          );
+        } else {
+          process.stdout.write(json);
+        }
         setExit(program, EXIT.OK);
       },
     );
