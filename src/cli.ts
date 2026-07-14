@@ -19,7 +19,7 @@ import { execFileSync } from "node:child_process";
 import { resolve as resolvePath } from "node:path";
 import { canonicalFormat, ALL_FORMATS } from "./format.js";
 import { parseSkills } from "./parse.js";
-import { runEngine } from "./engine.js";
+import { runEngine, buildRuleSet } from "./engine.js";
 import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { renderJson } from "./report/json.js";
@@ -38,6 +38,7 @@ import { writeFileSync } from "node:fs";
 import { writeConfigStub } from "./init.js";
 import { fixSkills, type FixFileResult } from "./fix.js";
 import { loadConfig, type ResolvedConfig } from "./config.js";
+import type { Rule } from "./types.js";
 import { explain } from "./explain.js";
 import { startWatch } from "./watch.js";
 import {
@@ -150,6 +151,21 @@ export const EXIT = {
   FINDINGS: 1,
   USAGE: 2,
 } as const;
+
+/**
+ * Resolve the effective rule set for a run: built-ins + any config `plugins`
+ * (issue #39). Plugin load failures (bad import, wrong export shape, duplicate
+ * rule id) are fatal — we throw a usage error so the CLI exits non-zero rather
+ * than silently linting with an incomplete rule set. Returns just the rules on
+ * success.
+ */
+async function resolveRuleSet(config: ResolvedConfig): Promise<Rule[]> {
+  const { rules, errors } = await buildRuleSet(config);
+  if (errors.length > 0) {
+    throw new Error(`plugin error:\n  - ${errors.join("\n  - ")}`);
+  }
+  return rules;
+}
 
 /** Coerce a CLI string into a finite integer, or throw a usage error. */
 function parseIntOption(name: string): (value: string) => number {
@@ -436,7 +452,8 @@ export function buildProgram(): Command {
             typeof opts.config === "string" ? opts.config : undefined,
           enabled: opts.config !== false,
         });
-        const report = runEngine(skills, { config });
+        const rules = await resolveRuleSet(config);
+        const report = runEngine(skills, { config, rules });
         const scored = scoreReport(
           report,
           skills.map((s) => s.path),
@@ -517,7 +534,8 @@ export function buildProgram(): Command {
             typeof opts.config === "string" ? opts.config : undefined,
           enabled: opts.config !== false,
         });
-        const report = runEngine(skills, { config });
+        const rules = await resolveRuleSet(config);
+        const report = runEngine(skills, { config, rules });
         const scored = scoreReport(
           report,
           skills.map((s) => s.path),
@@ -756,7 +774,8 @@ export function buildProgram(): Command {
         enabled: opts.config !== false,
       });
 
-      const report = runEngine(skills, { config });
+      const rules = await resolveRuleSet(config);
+      const report = runEngine(skills, { config, rules });
       const scored = scoreReport(
         report,
         skills.map((s) => s.path),
