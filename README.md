@@ -391,6 +391,32 @@ skill-sniffer rank ./skills --top 5 --json
 and always exits `0` on success (a bad `--since` ref still exits `2`). Use it to
 spot bloat; use `sniff --min-score` to actually enforce it.
 
+### Score badge (`badge`) — show off your hygiene
+
+Advertise your **Good Boy Score™** in a README with a live [shields.io](https://shields.io)
+endpoint badge. `skill-sniffer badge <path>` lints your skills and prints a
+shields *endpoint* payload (`{schemaVersion,label,message,color}`) to stdout:
+
+```bash
+skill-sniffer badge ./skills
+# { "schemaVersion": 1, "label": "good boy score", "message": "92/100", "color": "green" }
+```
+
+Commit it as an endpoint source with `--out`, then point shields at the raw URL:
+
+```bash
+skill-sniffer badge ./skills --out .github/badges/good-boy-score.json
+```
+
+```markdown
+![Good Boy Score](https://img.shields.io/endpoint?url=https://raw.githubusercontent.com/OWNER/REPO/main/.github/badges/good-boy-score.json)
+```
+
+Color tracks the score: **≥90** brightgreen · **≥75** green · **≥50** yellow ·
+**≥25** orange · else red. Override the left-hand text with `--label "skills"`.
+Regenerate it in CI (a scheduled job or post-merge step) so the badge stays
+current. It reuses the exact same scoring as `sniff` — no drift.
+
 ### SARIF output (`--sarif`) — findings in the GitHub UI
 
 `--json` is great for tooling, but findings still only live in logs. **SARIF
