@@ -75,6 +75,12 @@ export interface RawConfig {
    * (`"./local-rules.js"`), resolved offline against the config file's dir.
    */
   plugins?: string[];
+  /**
+   * Versioned injection signature pack (issue #40, PLAN §8.9). A local file
+   * path (resolved offline against the config file's dir) pointing at a
+   * custom/newer injection pack; overrides the bundled default.
+   */
+  injectionPack?: string;
   /** Baseline-diff gate defaults (issue #32). */
   baseline?: { maxNewFindings?: number; maxScoreDrop?: number };
   /** Tolerated and ignored — lets the stub advertise a schema id. */
@@ -114,6 +120,11 @@ export interface ResolvedConfig {
    * specifiers are left as-is for node module resolution. Empty when none.
    */
   plugins: string[];
+  /**
+   * Absolute path to a custom injection signature pack (issue #40), or
+   * `undefined` to use the bundled default. Resolved against the config dir.
+   */
+  injectionPack?: string;
   /** Per-rule resolution keyed by rule id. Missing id ⇒ rule runs as default. */
   rules: Record<string, ResolvedRuleConfig>;
   /** Absolute path the config was loaded from, if any. */
@@ -131,6 +142,7 @@ export function defaultConfig(): ResolvedConfig {
     baselineMaxNewFindings: undefined,
     baselineMaxScoreDrop: undefined,
     plugins: [],
+    injectionPack: undefined,
     rules: {},
     sourcePath: undefined,
     warnings: [],
@@ -344,6 +356,18 @@ export function normalizeConfig(
     }
   }
 
+  // --- injection pack override (issue #40) --------------------------------
+  if (raw.injectionPack !== undefined) {
+    if (typeof raw.injectionPack !== "string" || raw.injectionPack.trim() === "") {
+      warnings.push(
+        `ignoring "injectionPack": expected a non-empty file path, got ${describeType(raw.injectionPack)}`,
+      );
+    } else {
+      const baseDir = sourcePath ? dirname(sourcePath) : process.cwd();
+      cfg.injectionPack = resolve(baseDir, raw.injectionPack.trim());
+    }
+  }
+
   // --- per-rule settings --------------------------------------------------
   if (raw.rules !== undefined) {
     if (typeof raw.rules !== "object" || raw.rules === null || Array.isArray(raw.rules)) {
@@ -385,11 +409,19 @@ export function normalizeConfig(
  */
 export function loadConfig(
   paths: readonly string[],
-  opts: { explicitPath?: string; enabled?: boolean } = {},
+  opts: { explicitPath?: string; enabled?: boolean; injectionPack?: string } = {},
 ): ResolvedConfig {
-  const { explicitPath, enabled = true } = opts;
+  const { explicitPath, enabled = true, injectionPack } = opts;
 
-  if (!enabled) return defaultConfig();
+  const applyOverrides = (cfg: ResolvedConfig): ResolvedConfig => {
+    if (injectionPack !== undefined && injectionPack.trim() !== "") {
+      // A CLI --injection-pack is resolved against the cwd and wins over config.
+      cfg.injectionPack = resolve(process.cwd(), injectionPack.trim());
+    }
+    return cfg;
+  };
+
+  if (!enabled) return applyOverrides(defaultConfig());
 
   let sourcePath: string | undefined;
   if (explicitPath) {
@@ -404,7 +436,7 @@ export function loadConfig(
     sourcePath = discoverConfigPath(paths);
   }
 
-  if (!sourcePath) return defaultConfig();
+  if (!sourcePath) return applyOverrides(defaultConfig());
 
   let text: string;
   try {
@@ -416,7 +448,7 @@ export function loadConfig(
   }
 
   const raw = parseConfigText(text, sourcePath);
-  return normalizeConfig(raw, sourcePath);
+  return applyOverrides(normalizeConfig(raw, sourcePath));
 }
 
 /**

@@ -34,7 +34,7 @@
     "node": ">=18"
   },
   "scripts": {
-    "build": "tsc -p tsconfig.json",
+    "build": "tsc -p tsconfig.json && node scripts/copy-packs.mjs",
     "dev": "tsc -p tsconfig.json --watch",
     "test": "vitest run",
     "test:watch": "vitest",
