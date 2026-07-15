@@ -4,7 +4,7 @@ import { dirname, join, resolve } from "node:path";
 import pc from "picocolors";
 import { discoverSkills, type DiscoverOptions } from "./discover.js";
 import { parseSkills } from "./parse.js";
-import { runEngine } from "./engine.js";
+import { runEngine, buildRuleSet } from "./engine.js";
 import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { loadConfig } from "./config.js";
@@ -402,14 +402,20 @@ export async function sniffOnce(
 
   const skills = await parseSkills(files);
   const config = loadConfig(paths, { enabled: true });
-  const report = runEngine(skills, { config });
+  // Plugin errors in watch mode degrade gracefully: surface them as output
+  // rather than crashing the watcher; the built-in rules still run.
+  const { rules, errors } = await buildRuleSet(config);
+  const report = runEngine(skills, { config, rules });
   const scored = scoreReport(
     report,
     skills.map((s) => s.path),
   );
 
   return {
-    output: renderPretty(scored),
+    output:
+      (errors.length > 0
+        ? `${pc.red("plugin error:")} ${errors.join("; ")}\n`
+        : "") + renderPretty(scored),
     score: scored.score,
     filesChecked: skills.length,
   };

@@ -69,6 +69,12 @@ export interface RawConfig {
   minScore?: number;
   maxWarnings?: number;
   rules?: Record<string, RuleSetting>;
+  /**
+   * Custom rule plugins (issue #39, PLAN §8.3). Each entry is either a
+   * node-module specifier (`"skill-sniffer-plugin-foo"`) or a local path
+   * (`"./local-rules.js"`), resolved offline against the config file's dir.
+   */
+  plugins?: string[];
   /** Baseline-diff gate defaults (issue #32). */
   baseline?: { maxNewFindings?: number; maxScoreDrop?: number };
   /** Tolerated and ignored — lets the stub advertise a schema id. */
@@ -102,6 +108,12 @@ export interface ResolvedConfig {
    */
   baselineMaxNewFindings?: number;
   baselineMaxScoreDrop?: number;
+  /**
+   * Custom rule plugin specifiers (issue #39), in declaration order. Local
+   * paths are resolved to absolute against the config file's directory; bare
+   * specifiers are left as-is for node module resolution. Empty when none.
+   */
+  plugins: string[];
   /** Per-rule resolution keyed by rule id. Missing id ⇒ rule runs as default. */
   rules: Record<string, ResolvedRuleConfig>;
   /** Absolute path the config was loaded from, if any. */
@@ -118,6 +130,7 @@ export function defaultConfig(): ResolvedConfig {
     maxWarnings: undefined,
     baselineMaxNewFindings: undefined,
     baselineMaxScoreDrop: undefined,
+    plugins: [],
     rules: {},
     sourcePath: undefined,
     warnings: [],
@@ -308,6 +321,29 @@ export function normalizeConfig(
     }
   }
 
+  // --- custom rule plugins (issue #39) ------------------------------------
+  if (raw.plugins !== undefined) {
+    if (!Array.isArray(raw.plugins)) {
+      warnings.push(
+        `ignoring "plugins": expected an array of specifiers, got ${describeType(raw.plugins)}`,
+      );
+    } else {
+      // Resolve local paths against the config file's directory so relative
+      // specifiers mean "relative to .skillsnifferrc", not the cwd. Bare
+      // node-module specifiers are passed through untouched.
+      const baseDir = sourcePath ? dirname(sourcePath) : process.cwd();
+      for (const entry of raw.plugins) {
+        if (typeof entry !== "string" || entry.trim() === "") {
+          warnings.push(
+            `ignoring plugin entry: expected a non-empty string, got ${describeType(entry)}`,
+          );
+          continue;
+        }
+        cfg.plugins.push(resolvePluginSpecifier(entry.trim(), baseDir));
+      }
+    }
+  }
+
   // --- per-rule settings --------------------------------------------------
   if (raw.rules !== undefined) {
     if (typeof raw.rules !== "object" || raw.rules === null || Array.isArray(raw.rules)) {
@@ -401,6 +437,35 @@ export function selectRules(
 // ---------------------------------------------------------------------------
 // internal helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Resolve a plugin specifier for later loading.
+ *
+ * A specifier is treated as a **local path** when it is absolute or begins with
+ * `.` / `/` (or a `~` home ref) — those are resolved to an absolute path against
+ * `baseDir` so they mean "relative to the config file". Anything else is a bare
+ * node-module specifier and is returned unchanged for node resolution.
+ */
+export function resolvePluginSpecifier(spec: string, baseDir: string): string {
+  if (isLocalSpecifier(spec)) {
+    if (isAbsolute(spec)) return spec;
+    return resolve(baseDir, spec);
+  }
+  return spec;
+}
+
+/** True when a plugin specifier names a local file path rather than a package. */
+export function isLocalSpecifier(spec: string): boolean {
+  return (
+    isAbsolute(spec) ||
+    spec.startsWith("./") ||
+    spec.startsWith("../") ||
+    spec.startsWith(".\\") ||
+    spec.startsWith("..\\") ||
+    spec === "." ||
+    spec === ".."
+  );
+}
 
 /** Outcome of resolving one raw rule setting: ok with a value, or an error. */
 type RuleSettingResult =

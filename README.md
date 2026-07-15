@@ -547,7 +547,8 @@ clobber an existing one):
     "injection": "on",
     "token-bloat": "warning",
     "broken-paths": "off"
-  }
+  },
+  "plugins": ["skill-sniffer-plugin-house-style", "./rules/no-todo.js"]
 }
 ```
 
@@ -579,6 +580,68 @@ overrides a config `maxWarnings`. Point at a specific file with
 `--config <path>` (a named-but-missing file is a usage error), or ignore any
 config entirely with `--no-config`. Unknown keys and bad values are reported as
 non-fatal `config warning:` notes rather than failing the run.
+
+### Custom rule plugins
+
+Extend the dog's nose with your own rules. Add a `plugins` array to your
+`.skillsnifferrc` — each entry is either a **node-module** specifier or a
+**local path** (resolved relative to the config file):
+
+```json
+{
+  "plugins": [
+    "skill-sniffer-plugin-house-style",
+    "./rules/no-todo.js"
+  ]
+}
+```
+
+A plugin is just a module that exports a `Rule[]` in any of these shapes:
+
+```js
+// default export of an array (the primary contract)
+export default [
+  {
+    id: "no-todo",
+    description: "flags leftover TODO markers in skills",
+    defaultSeverity: "warning", // optional; defaults to "warning"
+    run(skill, ctx) {
+      if (!skill.body.includes("TODO")) return [];
+      return [{
+        ruleId: "no-todo",
+        severity: ctx.severityFor(this, "warning"),
+        message: "leftover TODO in skill body",
+        path: skill.path,
+      }];
+    },
+  },
+];
+
+// also accepted:  export default { rules: [ ... ] }
+// also accepted:  export const rules = [ ... ]
+```
+
+The `Rule` contract is exactly the one the built-ins use (see
+[`src/types.ts`](src/types.ts)): a stable string `id`, a `run(skill, ctx)` that
+returns `Finding[]`, and an optional `defaultSeverity` / `description` /
+`rationale` / `example`. Route each finding's severity through
+`ctx.severityFor(this, fallback)` so config severity overrides and
+enable/disable work on your rule just like the built-ins:
+
+```json
+{ "plugins": ["./rules/no-todo.js"], "rules": { "no-todo": "error" } }
+```
+
+**Rules of the kennel:**
+
+- **Offline only.** Plugins are loaded with a plain dynamic `import` — local
+  paths and already-installed node modules. skill-sniffer never fetches or
+  installs anything over the network.
+- **No duplicate ids.** A plugin rule that collides with a built-in (or another
+  plugin) is a **clear error and a non-zero exit** — you'll never silently
+  shadow a rule.
+- **Fail loud.** A plugin that can't be imported or exports the wrong shape
+  stops the run (exit `2`) rather than quietly skipping checks you think are on.
 
 ### Auto-fix (`--fix`)
 
@@ -652,7 +715,7 @@ $ node bin/skill-sniffer ./skills
 
 ## Status
 
-✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup, `.skillsnifferrc` config (rule enable/disable, severity overrides, tunable budget/gates), and multi-format support (`AGENTS.md` / `CLAUDE.md` / `.cursorrules` / MCP manifests) have landed.
+✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup, `.skillsnifferrc` config (rule enable/disable, severity overrides, tunable budget/gates), custom rule plugins (`plugins`), and multi-format support (`AGENTS.md` / `CLAUDE.md` / `.cursorrules` / MCP manifests) have landed.
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.

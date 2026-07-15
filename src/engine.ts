@@ -8,6 +8,7 @@ import type {
 } from "./types.js";
 import { rules as defaultRules } from "./rules/index.js";
 import { makeTokenBloatRule } from "./rules/token-bloat.js";
+import { loadPlugins } from "./plugins.js";
 import {
   defaultConfig,
   selectRules,
@@ -144,4 +145,30 @@ function tally(findings: Finding[]): Record<Severity, number> {
   const counts: Record<Severity, number> = { error: 0, warning: 0, info: 0 };
   for (const f of findings) counts[f.severity]++;
   return counts;
+}
+
+/**
+ * Build the effective rule set for a run: the built-in registry plus any custom
+ * rules contributed by config `plugins` (issue #39).
+ *
+ * This is the single place the CLI resolves plugins, so every command (sniff,
+ * badge, baseline, rank, action) picks up plugin rules uniformly. Plugin load
+ * failures — bad import, wrong export shape, duplicate rule id — are returned as
+ * `errors`; the CLI surfaces them and exits non-zero rather than silently
+ * running an incomplete rule set.
+ *
+ * When `config.plugins` is empty this resolves synchronously-fast to just the
+ * built-in registry with no errors.
+ */
+export async function buildRuleSet(
+  config: ResolvedConfig,
+): Promise<{ rules: Rule[]; errors: string[] }> {
+  const builtins = [...defaultRules];
+  if (config.plugins.length === 0) return { rules: builtins, errors: [] };
+
+  const { rules: pluginRules, errors } = await loadPlugins(
+    config,
+    builtins.map((r) => r.id),
+  );
+  return { rules: [...builtins, ...pluginRules], errors };
 }
