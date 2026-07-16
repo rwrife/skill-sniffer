@@ -20,6 +20,10 @@ import { resolve as resolvePath } from "node:path";
 import { canonicalFormat, ALL_FORMATS } from "./format.js";
 import { parseSkills } from "./parse.js";
 import { runEngine, buildRuleSet } from "./engine.js";
+import {
+  loadInjectionPack,
+  loadBundledInjectionPack,
+} from "./packs.js";
 import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { renderJson } from "./report/json.js";
@@ -111,6 +115,8 @@ interface SniffOptions {
    * `undefined` means "discover normally".
    */
   config?: string | false;
+  /** Custom injection signature pack path (issue #40); overrides config/default. */
+  injectionPack?: string;
 }
 
 /**
@@ -253,6 +259,83 @@ export function buildProgram(): Command {
         process.stdout.write(result.text);
       }
       setExit(program, result.exitCode);
+    });
+
+  // `packs` — report the active injection signature pack (issue #40). Resolves
+  // the effective pack (bundled default unless overridden by config
+  // `injectionPack` or `--injection-pack`) and prints its version + signature
+  // count. A malformed pack surfaces as a fatal error (non-zero exit).
+  program
+    .command("packs")
+    .description(
+      "show the active prompt-injection signature pack (version + signature count)",
+    )
+    .option("--json", "emit the pack summary as JSON instead of pretty output")
+    .option(
+      "--injection-pack <file>",
+      "resolve a specific injection pack (JSON) instead of the configured/bundled one",
+    )
+    .option(
+      "--config <path>",
+      `use a specific ${".skillsnifferrc"} file instead of discovering one`,
+    )
+    .option("--no-config", "ignore any .skillsnifferrc and use built-in defaults")
+    .action((_opts: unknown, command: Command) => {
+      const opts = command.optsWithGlobals() as {
+        json?: boolean;
+        injectionPack?: string;
+        config?: string | false;
+      };
+      const config = loadConfig(["."], {
+        explicitPath: typeof opts.config === "string" ? opts.config : undefined,
+        enabled: opts.config !== false,
+        injectionPack: opts.injectionPack,
+      });
+
+      const pack = config.injectionPack
+        ? loadInjectionPack(config.injectionPack)
+        : ({ ok: true, pack: loadBundledInjectionPack() } as const);
+
+      if (!pack.ok) {
+        throw new Error(pack.error);
+      }
+
+      const p = pack.pack;
+      const errorCount = p.signatures.filter((s) => s.severity === "error").length;
+      const warnCount = p.signatures.length - errorCount;
+
+      if (opts.json) {
+        process.stdout.write(
+          `${JSON.stringify(
+            {
+              source: p.source,
+              version: p.version,
+              description: p.description,
+              signatureCount: p.signatures.length,
+              errors: errorCount,
+              warnings: warnCount,
+              signatures: p.signatures.map((s) => ({
+                id: s.id,
+                label: s.label,
+                severity: s.severity,
+                kind: s.kind,
+              })),
+            },
+            null,
+            2,
+          )}\n`,
+        );
+      } else {
+        const origin = p.source === "bundled" ? "bundled default" : p.source;
+        process.stdout.write(
+          `${pc.bold("injection pack")} \ud83e\uddec\n` +
+            `  source:     ${origin}\n` +
+            `  version:    ${p.version}\n` +
+            `  signatures: ${p.signatures.length} (${errorCount} error, ${warnCount} warning)\n` +
+            (p.description ? `  ${pc.dim(p.description)}\n` : ""),
+        );
+      }
+      setExit(program, EXIT.OK);
     });
 
   // `install-hook` — the git pre-commit gate (issue #34). Writes (or refreshes)
@@ -629,6 +712,10 @@ export function buildProgram(): Command {
       "skip these agent-context formats (repeatable/comma-separated)",
       collectList,
     )
+    .option(
+      "--injection-pack <file>",
+      "use a custom versioned injection signature pack (JSON) instead of the bundled default",
+    )
     .action(async (paths: string[], opts: SniffOptions) => {
       // --init is a standalone action: scaffold config, then exit.
       if (opts.init) {
@@ -772,6 +859,7 @@ export function buildProgram(): Command {
       const config = loadConfig(paths, {
         explicitPath: typeof opts.config === "string" ? opts.config : undefined,
         enabled: opts.config !== false,
+        injectionPack: opts.injectionPack,
       });
 
       const rules = await resolveRuleSet(config);

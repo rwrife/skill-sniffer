@@ -8,6 +8,8 @@ import type {
 } from "./types.js";
 import { rules as defaultRules } from "./rules/index.js";
 import { makeTokenBloatRule } from "./rules/token-bloat.js";
+import { makeInjectionRule } from "./rules/injection.js";
+import { loadInjectionPack } from "./packs.js";
 import { loadPlugins } from "./plugins.js";
 import {
   defaultConfig,
@@ -163,12 +165,27 @@ function tally(findings: Finding[]): Record<Severity, number> {
 export async function buildRuleSet(
   config: ResolvedConfig,
 ): Promise<{ rules: Rule[]; errors: string[] }> {
-  const builtins = [...defaultRules];
-  if (config.plugins.length === 0) return { rules: builtins, errors: [] };
+  const errors: string[] = [];
+  let builtins = [...defaultRules];
 
-  const { rules: pluginRules, errors } = await loadPlugins(
+  // Swap in a custom injection pack when configured (issue #40). A bad pack is
+  // fatal — surfaced as an error so the CLI exits non-zero rather than silently
+  // linting with the default signatures.
+  if (config.injectionPack) {
+    const result = loadInjectionPack(config.injectionPack);
+    if (!result.ok) {
+      errors.push(result.error);
+    } else {
+      const custom = makeInjectionRule(result.pack);
+      builtins = builtins.map((r) => (r.id === "injection" ? custom : r));
+    }
+  }
+
+  if (config.plugins.length === 0) return { rules: builtins, errors };
+
+  const { rules: pluginRules, errors: pluginErrors } = await loadPlugins(
     config,
     builtins.map((r) => r.id),
   );
-  return { rules: [...builtins, ...pluginRules], errors };
+  return { rules: [...builtins, ...pluginRules], errors: [...errors, ...pluginErrors] };
 }

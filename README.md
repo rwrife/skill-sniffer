@@ -548,7 +548,8 @@ clobber an existing one):
     "token-bloat": "warning",
     "broken-paths": "off"
   },
-  "plugins": ["skill-sniffer-plugin-house-style", "./rules/no-todo.js"]
+  "plugins": ["skill-sniffer-plugin-house-style", "./rules/no-todo.js"],
+  "injectionPack": "./packs/injection-2026.json"  // custom injection signature pack (optional)
 }
 ```
 
@@ -642,6 +643,67 @@ enable/disable work on your rule just like the built-ins:
   shadow a rule.
 - **Fail loud.** A plugin that can't be imported or exports the wrong shape
   stops the run (exit `2`) rather than quietly skipping checks you think are on.
+
+### Versioned injection packs (`--injection-pack` / `packs`)
+
+The prompt-injection rule's bait signatures live in an **updatable, versioned
+JSON pack** rather than hardcoded regexes, so signatures can evolve (and stay
+auditable) without a code release. A default pack ships bundled
+(`packs/injection/v1.json`); point at a custom or newer one via
+`--injection-pack <file>` or config `injectionPack` (local file only, offline):
+
+```jsonc
+// .skillsnifferrc
+{ "injectionPack": "./packs/injection-2026.json" }
+```
+
+```bash
+npx skill-sniffer . --injection-pack ./packs/injection-2026.json
+npx skill-sniffer packs            # show the active pack: version + signature count
+npx skill-sniffer packs --json     # machine-readable summary
+```
+
+**Pack format** — a `version` plus an array of `signatures`:
+
+```json
+{
+  "version": "2",
+  "description": "House injection signatures",
+  "signatures": [
+    {
+      "id": "instruction-override-previous",
+      "label": "instruction-override phrase",
+      "pattern": "\\bignore\\s+(?:all\\s+)?previous\\s+instructions?\\b",
+      "flags": "i",
+      "severity": "error",
+      "description": "classic 'ignore previous instructions' bait"
+    },
+    {
+      "id": "suspicious-comment",
+      "kind": "comment",
+      "label": "suspicious instruction-like HTML comment",
+      "pattern": "<!--[\\s\\S]{0,400}?(?:ignore|you\\s+must|reveal)[\\s\\S]{0,400}?-->",
+      "severity": "error"
+    }
+  ]
+}
+```
+
+- `id` — stable, unique per pack (used for auditing/diffing; duplicate ids are a
+  fatal error).
+- `pattern` / `flags` — a regex source + flags. Scanning is always
+  case-insensitive (`i` is forced on).
+- `severity` — `error` or `warning`.
+- `kind` — `"phrase"` (default) scans the raw text for bait; `"comment"` matches
+  agent-directed HTML comments.
+
+Zero-width / bidi control-character detection stays **built-in** (it isn't a
+regex signature) and always runs regardless of the pack. A malformed pack
+(bad JSON, missing/duplicate/invalid signature, unparseable regex) is a **clear
+error and non-zero exit** — the dog never silently lints with no signatures.
+
+To update signatures, copy the bundled pack, bump `version`, add/adjust entries,
+and point `injectionPack` at your copy.
 
 ### Auto-fix (`--fix`)
 

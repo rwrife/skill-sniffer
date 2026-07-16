@@ -1,58 +1,7 @@
 import type { Finding, ParsedSkill, Rule, RuleContext } from "../types.js";
 import { findMatches, offsetToPosition } from "./scan.js";
-
-/** A bait signature: a labelled regex plus the severity it warrants. */
-interface BaitPattern {
-  /** What kind of injection this is, for the finding message. */
-  label: string;
-  /** Detector. Scanned case-insensitively over the raw text. */
-  re: RegExp;
-  /** Severity for hits (most are `error`; softer "voice hijack" phrasing warns). */
-  severity: "error" | "warning";
-}
-
-/**
- * Classic prompt-injection bait aimed at *agents* reading the skill. These are
- * the phrases an attacker hides in a skill to override the host instructions.
- * Kept high-signal so we error confidently.
- */
-const BAIT: BaitPattern[] = [
-  {
-    label: "instruction-override phrase",
-    re: /\bignore\s+(?:all\s+|any\s+)?(?:the\s+)?(?:previous|prior|above|preceding|earlier)\s+(?:instructions?|prompts?|messages?|context|directions?)\b/i,
-    severity: "error",
-  },
-  {
-    label: "instruction-override phrase",
-    re: /\bdisregard\s+(?:all\s+|any\s+)?(?:the\s+|your\s+)?(?:previous|prior|above|system)\s+(?:instructions?|prompts?|rules?|message)\b/i,
-    severity: "error",
-  },
-  {
-    label: "system-prompt override",
-    re: /\b(?:disregard|ignore|forget|override)\s+(?:your\s+|the\s+)?system\s+prompt\b/i,
-    severity: "error",
-  },
-  {
-    label: "role-reassignment phrase",
-    re: /\byou\s+are\s+now\s+(?:a\s+|an\s+|the\s+)?(?:[a-z]+\s+){0,4}(?:assistant|model|ai|dan|jailbreak|admin|developer|root|hacker)\b/i,
-    severity: "error",
-  },
-  {
-    label: "memory-wipe phrase",
-    re: /\b(?:forget|erase|clear)\s+(?:everything|all)\s+(?:you|that|above|previously)\b/i,
-    severity: "warning",
-  },
-  {
-    label: "exfiltration prompt",
-    re: /\b(?:print|reveal|output|repeat|show)\s+(?:me\s+)?(?:your\s+|the\s+)?(?:system\s+prompt|initial\s+instructions|hidden\s+(?:rules|instructions)|api[_-]?keys?|secrets?)\b/i,
-    severity: "error",
-  },
-  {
-    label: "guardrail-bypass phrase",
-    re: /\b(?:do\s+not|don't)\s+(?:tell|inform|mention\s+to|alert)\s+(?:the\s+)?(?:user|human|operator)\b/i,
-    severity: "warning",
-  },
-];
+import type { InjectionPack } from "../packs.js";
+import { loadBundledInjectionPack } from "../packs.js";
 
 /**
  * Invisible / zero-width / bidi control characters. These render as nothing (or
@@ -82,8 +31,8 @@ export const INVISIBLE_CHARS: Record<number, string> = {
  * `<!-- -->` for genuine notes, so we only flag comments that read like *orders
  * to the agent* (imperatives, "you must", "system:"), not every comment.
  */
-const SUSPICIOUS_COMMENT =
-  /<!--[\s\S]{0,400}?(?:ignore|disregard|you\s+are|you\s+must|system\s*:|assistant\s*:|do\s+not\s+tell|reveal|exfiltrate|instructions?)[\s\S]{0,400}?-->/i;
+// (Bait phrases and the suspicious-comment detector now live in versioned
+// injection packs — see src/packs.ts and packs/injection/v1.json.)
 
 /**
  * Prompt-injection scent rule — the other headline scent.
@@ -100,7 +49,16 @@ const SUSPICIOUS_COMMENT =
  * a `warning` since it occasionally appears in legitimate UX copy. All findings
  * carry line/column.
  */
-export const injectionRule: Rule = {
+/**
+ * Build the prompt-injection rule from a loaded signature {@link InjectionPack}.
+ * Bait phrases + agent-directed comment detection come from the pack (so
+ * signatures are versioned/updatable, issue #40); zero-width/bidi character
+ * detection stays built-in since it isn't a regex signature.
+ */
+export function makeInjectionRule(pack: InjectionPack): Rule {
+  const phraseSigs = pack.signatures.filter((s) => s.kind === "phrase");
+  const commentSigs = pack.signatures.filter((s) => s.kind === "comment");
+  return {
   id: "injection",
   description:
     "Flag prompt-injection bait: override phrases, zero-width/bidi chars, and agent-directed HTML comments.",
@@ -142,14 +100,14 @@ export const injectionRule: Rule = {
       });
     };
 
-    // 1. Bait phrases.
-    for (const bait of BAIT) {
-      for (const m of findMatches(skill.raw, bait.re)) {
+    // 1. Bait phrases (pack-driven).
+    for (const sig of phraseSigs) {
+      for (const m of findMatches(skill.raw, sig.re)) {
         push(
           m.line,
           m.column,
-          bait.severity,
-          `prompt-injection ${bait.label}: "${truncate(m.text)}"`,
+          sig.severity,
+          `prompt-injection ${sig.label}: "${truncate(m.text)}"`,
         );
       }
     }
@@ -163,19 +121,25 @@ export const injectionRule: Rule = {
       push(pos.line, pos.column, "error", `hidden ${desc} in skill text`);
     }
 
-    // 3. Suspicious agent-directed HTML comments.
-    for (const m of findMatches(skill.raw, SUSPICIOUS_COMMENT)) {
-      push(
-        m.line,
-        m.column,
-        "error",
-        "suspicious instruction-like HTML comment (possible hidden prompt)",
-      );
+    // 3. Suspicious agent-directed HTML comments (pack-driven).
+    for (const sig of commentSigs) {
+      for (const m of findMatches(skill.raw, sig.re)) {
+        push(
+          m.line,
+          m.column,
+          sig.severity,
+          "suspicious instruction-like HTML comment (possible hidden prompt)",
+        );
+      }
     }
 
     return findings;
   },
-};
+  };
+}
+
+/** The default-pack injection rule registered in the engine. */
+export const injectionRule: Rule = makeInjectionRule(loadBundledInjectionPack());
 
 /** Clip long matched snippets so the report stays one line. */
 function truncate(s: string, max = 60): string {
