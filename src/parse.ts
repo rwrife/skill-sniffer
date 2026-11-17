@@ -42,6 +42,13 @@ export async function parseSkill(filePath: string): Promise<ParsedSkill> {
     };
   }
 
+  return parseSkillText(abs, raw);
+}
+
+/** Parse already-read text using the same frontmatter and format handling. */
+export function parseSkillText(filePath: string, raw: string): ParsedSkill {
+  const abs = resolve(filePath);
+  const format = classifyFormat(abs);
   try {
     // gray-matter memoizes by content in a module-level cache. A parse that
     // throws can poison that cache so a later parse of the *same* content

@@ -119,6 +119,41 @@ Every file starts at **100** and loses points per scent — **error −25**,
 *minimum* across files (a kennel is only as good as its worst-behaved dog), so a
 single nasty skill can't hide behind clean ones in CI.
 
+### Bundled scripts and resources (`--follow-refs`)
+
+Reference scanning is opt-in. Follow local Markdown links and inline-code paths
+using the same resolver as **broken-paths**, plus explicit relative or
+`scripts/`, `assets/`, and `references/` paths in commands:
+
+```bash
+skill-sniffer ./skills/example/SKILL.md --follow-refs
+skill-sniffer ./skills --follow-refs --max-ref-depth 3 --json
+```
+
+Referenced files are **read as text, never executed or fetched**. Scripts and
+other text resources get **secrets**, **provenance**, and **injection** checks;
+bundled `.md` files get the full enabled ruleset (ordinary reference docs do
+not require skill frontmatter). Existing `.skillsnifferrc` rule disables,
+severity overrides, token budgets, and injection packs still apply.
+
+Findings keep the referenced file's **source path and line/column**. Each input
+skill's score also deducts findings from all its reachable bundled files, once
+per source, so a clean `SKILL.md` cannot hide a dangerous helper. Shared sources
+are reported only once, but affect every parent that references them.
+`skillsChecked` remains the number of input agent-context files.
+
+Paths resolve relative to the file containing the reference. Traversal stays
+inside each input file's directory tree (including resolved symlink targets),
+skips directories and binary assets containing NUL bytes, and never follows
+URLs or absolute paths. Cycles and duplicate references are scanned once.
+The default maximum depth is **5 reference edges**; `--max-ref-depth <n>`
+accepts a non-negative integer, with `0` scanning only input files. A
+`follow-refs` warning identifies files skipped at the depth limit; read failures
+are errors rather than clean results. These flags also work with `--watch`;
+`--follow-refs` cannot be combined with `--fix` because references are read-only.
+With `--since` or `--staged`, input skill selection is unchanged: only selected
+parents have their references followed.
+
 ### CI gates & exit codes
 
 | Exit | Meaning |

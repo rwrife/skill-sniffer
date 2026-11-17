@@ -159,6 +159,8 @@ export interface RuleExample {
  * of findings plus cheap roll-up counts. The pretty/JSON reporters render this.
  */
 export interface Report {
+  /** Reachable bundled source paths per input skill, when following references. */
+  referencedPaths?: Record<string, string[]>;
   /** Every finding across every skill, in a stable order. */
   findings: Finding[];
   /** How many skill files were inspected (including ones with no findings). */
