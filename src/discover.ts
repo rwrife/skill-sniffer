@@ -106,7 +106,7 @@ async function discoverOne(
 
   if (info.isDirectory()) {
     return globAbsolute(
-      globs.map((g) => `${stripTrailingSlash(input)}/${g}`),
+      globs.map((g) => `${fg.convertPathToPattern(resolve(input))}/${g}`),
     );
   }
 
@@ -121,7 +121,7 @@ async function discoverOne(
 async function globAbsolute(
   patterns: string | readonly string[],
 ): Promise<string[]> {
-  return fg(patterns as string | string[], {
+  const matches = await fg(patterns as string | string[], {
     absolute: true,
     dot: true,
     onlyFiles: true,
@@ -129,6 +129,7 @@ async function globAbsolute(
     caseSensitiveMatch: false,
     suppressErrors: true,
   });
+  return matches.map((path) => resolve(path));
 }
 
 /**
@@ -172,10 +173,6 @@ export function intersectChanged(
 /** Cheap heuristic for glob metacharacters. */
 function isGlob(input: string): boolean {
   return /[*?{}[\]()!]/.test(input);
-}
-
-function stripTrailingSlash(p: string): string {
-  return p.replace(/\/+$/, "");
 }
 
 export { ALL_FORMATS };

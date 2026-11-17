@@ -7,6 +7,9 @@
  */
 
 export { run } from "./cli.js";
+export { checkCompatibility, loadHostProfiles } from "./compat.js";
+export type { HostProfile, CompatibilityReport } from "./compat.js";
+export { renderCompatibilityJson, renderCompatibilityText } from "./report/compat.js";
 export { getVersion } from "./version.js";
 export { discoverSkills, looksLikeSkillFile, intersectChanged, SKILL_GLOBS } from "./discover.js";
 export type { DiscoverOptions } from "./discover.js";

@@ -1,0 +1,14 @@
+{
+  "id": "copilot",
+  "requiredFields": ["name", "description"],
+  "allowedFrontmatterKeys": ["name", "description", "license", "compatibility", "metadata", "allowed-tools"],
+  "forbiddenFrontmatterKeys": [],
+  "maxDescriptionLength": 1024,
+  "descriptionSuffixField": null,
+  "maxBytes": null,
+  "tokenBudget": 5000,
+  "discoveryGlobs": [".github/skills/*/SKILL.md", ".claude/skills/*/SKILL.md", ".agents/skills/*/SKILL.md"],
+  "parseErrorSeverity": "error",
+  "sources": ["https://docs.github.com/en/copilot/how-tos/copilot-on-github/customize-copilot/customize-cloud-agent/add-skills", "https://agentskills.io/specification"],
+  "notes": "Copilot documents required name and description and exact SKILL.md filename. The 1024-character description and 5000-token budget are spec guidance; host rejection at those limits is unverified, so they only warn. Unknown-key behavior and byte rejection limits are unverified. Discovery locations vary by surface; globs describe project installation, not the input scan root."
+}

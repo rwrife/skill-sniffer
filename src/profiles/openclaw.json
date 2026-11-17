@@ -1,0 +1,14 @@
+{
+  "id": "openclaw",
+  "requiredFields": ["description"],
+  "allowedFrontmatterKeys": ["name", "description", "license", "compatibility", "metadata", "allowed-tools", "homepage", "user-invocable", "disable-model-invocation", "command-dispatch", "command-tool", "command-arg-mode"],
+  "forbiddenFrontmatterKeys": [],
+  "maxDescriptionLength": 1024,
+  "descriptionSuffixField": null,
+  "maxBytes": null,
+  "tokenBudget": 5000,
+  "discoveryGlobs": ["skills/**/SKILL.md", ".agents/skills/**/SKILL.md"],
+  "parseErrorSeverity": "warning",
+  "sources": ["https://docs.openclaw.ai/tools/skills", "https://agentskills.io/specification"],
+  "notes": "File-backed workspace skills, not managed ZIP/library uploads. Loading documentation allows a directory-name fallback even though authoring guidance requests name. YAML has a fallback parser, so parse errors warn. The 1024-character description and 5000-token budget are spec guidance, not verified rejection limits. Unknown-key behavior and file-backed byte limits are unverified. Grouped discovery stops at a skill and is limited to six levels; globs are installation guidance, not an exact discovery simulation."
+}

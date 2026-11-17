@@ -17,3 +17,4 @@ if (!existsSync(from)) {
 mkdirSync(dirname(to), { recursive: true });
 cpSync(from, to, { recursive: true });
 console.log(`[copy-packs] copied ${from} -> ${to}`);
+cpSync(resolve(root, "src/profiles"), resolve(root, "dist/profiles"), { recursive: true });

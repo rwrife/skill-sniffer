@@ -391,6 +391,41 @@ skill-sniffer rank ./skills --top 5 --json
 and always exits `0` on success (a bad `--since` ref still exits `2`). Use it to
 spot bloat; use `sniff --min-score` to actually enforce it.
 
+### Cross-host compatibility (`compat`)
+
+Check native skills against bundled Claude Code, Codex, Copilot, and OpenClaw
+profiles without network access or telemetry:
+
+```bash
+skill-sniffer compat ./skills
+skill-sniffer compat ./skills --host copilot
+skill-sniffer compat ./skills --json
+```
+
+For example, a short skill with a description but no `name` produces:
+
+```text
+Skill compatibility (static checks, not a host load guarantee)
+Skill | claude-code | codex | copilot | openclaw
+skills/example/SKILL.md | pass | fail | fail | pass
+  codex [error] missing required frontmatter field `name`
+  copilot [error] missing required frontmatter field `name`
+```
+
+The full report includes profile scope and unknowns. Exit **1** means at least
+one selected host fails a documented contract; warnings alone exit **0**.
+Unknown hosts and missing/skill-free paths exit **2**. JSON uses
+`skill-sniffer/compat@1` with `profiles` (sources, limits, discovery guidance,
+and caveats) and per-skill `hosts` (status and engine findings).
+
+**Conservative, not a host emulator:** unknown byte limits stay `null`;
+undocumented fields, description guidance, and the spec's approximate
+5000-token recommendation warn rather than inventing rejection behavior.
+Installation globs are guidance, not input filters; skills can be checked before
+installation. Only the exact `SKILL.md` filename is host-compatible.
+Normal lint configuration does not weaken host checks.
+See [profile documentation](src/profiles/README.md) for sources and limitations.
+
 ### Score badge (`badge`) — show off your hygiene
 
 Advertise your **Good Boy Score™** in a README with a live [shields.io](https://shields.io)
