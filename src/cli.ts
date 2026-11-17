@@ -51,6 +51,8 @@ import {
   renderRankingJson,
 } from "./rank.js";
 import { DEFAULT_TOKEN_BUDGET } from "./rules/token-bloat.js";
+import { checkCompatibility, loadHostProfiles } from "./compat.js";
+import { renderCompatibilityJson, renderCompatibilityText } from "./report/compat.js";
 import {
   buildBadge,
   renderBadgeJson,
@@ -237,6 +239,26 @@ export function buildProgram(): Command {
       "🐕👃 A paranoid, offline linter for agent SKILL.md files. Sniffs out secrets, prompt-injection bait, token bloat, broken paths, and over-broad tool grants.",
     )
     .version(getVersion(), "-v, --version", "print the version and exit");
+
+  program
+    .command("compat")
+    .argument("<path>", "skill file or directory to check across hosts")
+    .description("show an offline cross-host Agent Skills compatibility matrix")
+    .option("--host <name>", "only check claude-code, codex, copilot, or openclaw")
+    .option("--json", "emit the compatibility matrix and profile caveats as JSON")
+    .action(async (path: string, _opts: unknown, command: Command) => {
+      const opts = command.optsWithGlobals() as { host?: string; json?: boolean };
+      const profiles = loadHostProfiles(opts.host);
+      const files = await discoverSkills([path], { include: ["skill"] });
+      if (files.length === 0) {
+        throw new Error(`no skill files found at "${path}"`);
+      }
+      const report = checkCompatibility(await parseSkills(files), profiles);
+      process.stdout.write(opts.json
+        ? renderCompatibilityJson(report) : renderCompatibilityText(report));
+      setExit(program, report.skills.some((s) => s.hosts.some((h) => h.status === "fail"))
+        ? EXIT.FINDINGS : EXIT.OK);
+    });
 
   // `explain [ruleId]` — offline docs for a rule id (issue #22). With no id it
   // lists every registered rule; with an unknown id it errors (non-zero exit)

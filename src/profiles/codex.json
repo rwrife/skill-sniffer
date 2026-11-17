@@ -1,0 +1,14 @@
+{
+  "id": "codex",
+  "requiredFields": ["name", "description"],
+  "allowedFrontmatterKeys": ["name", "description", "license", "compatibility", "metadata", "allowed-tools"],
+  "forbiddenFrontmatterKeys": [],
+  "maxDescriptionLength": 1024,
+  "descriptionSuffixField": null,
+  "maxBytes": null,
+  "tokenBudget": 5000,
+  "discoveryGlobs": [".agents/skills/*/SKILL.md"],
+  "parseErrorSeverity": "error",
+  "sources": ["https://developers.openai.com/codex/skills", "https://agentskills.io/specification"],
+  "notes": "Codex documents required name and description. The 1024-character description and 5000-token budget are spec guidance; host rejection at those limits is unverified, so they only warn. Unknown-key behavior and byte rejection limits are unverified. Project roots are searched from CWD to repository root; personal/admin/system roots also exist. Discovery globs describe installation, not the input scan root."
+}

@@ -29,88 +29,100 @@ const MAX_DESCRIPTION_LENGTH = 200;
  * we only validate a `description` when one is actually present (still catches
  * an overlong one), and we still surface genuine parse errors.
  */
-export const frontmatterRule: Rule = {
-  id: "frontmatter",
-  description:
-    "Require name + description frontmatter on skills; warn on missing or overlong description.",
-  defaultSeverity: "error",
-  rationale:
-    "A skill's `name` and `description` are the only parts an agent sees before " +
-    "deciding whether to load it, so a missing or empty one makes the skill " +
-    "undiscoverable (or silently mis-picked). An overlong `description` is the " +
-    "opposite problem: it's injected verbatim into context on every candidate " +
-    "match, so an essay here is a recurring token tax. This contract only " +
-    "applies to native SKILL.md files; other formats are checked leniently.",
-  example: {
-    lang: "yaml",
-    bad: "---\nname: \ndescription: \n---\n# does a thing",
-    good:
-      "---\nname: pdf-extract\ndescription: Extract text + tables from PDFs into Markdown.\n---\n# does a thing",
-  },
+export function makeFrontmatterRule(options: {
+  requiredFields?: readonly ("name" | "description")[];
+  maxDescriptionLength?: number | null;
+  parseErrorSeverity?: "error" | "warning";
+} = {}): Rule {
+  const required = options.requiredFields ?? ["name", "description"];
+  const maxDescriptionLength = options.maxDescriptionLength === undefined
+    ? MAX_DESCRIPTION_LENGTH : options.maxDescriptionLength;
+  return {
+    id: "frontmatter",
+    description:
+      "Require name + description frontmatter on skills; warn on missing or overlong description.",
+    defaultSeverity: "error",
+    rationale:
+      "A skill's `name` and `description` are the only parts an agent sees before " +
+      "deciding whether to load it, so a missing or empty one makes the skill " +
+      "undiscoverable (or silently mis-picked). An overlong `description` is the " +
+      "opposite problem: it's injected verbatim into context on every candidate " +
+      "match, so an essay here is a recurring token tax. This contract only " +
+      "applies to native SKILL.md files; other formats are checked leniently.",
+    example: {
+      lang: "yaml",
+      bad: "---\nname: \ndescription: \n---\n# does a thing",
+      good:
+        "---\nname: pdf-extract\ndescription: Extract text + tables from PDFs into Markdown.\n---\n# does a thing",
+    },
 
-  run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
-    const findings: Finding[] = [];
-    const error = (message: string) => findings.push(make(skill, ctx, "error", message));
-    const warn = (message: string) => findings.push(make(skill, ctx, "warning", message));
+    run(skill: ParsedSkill, ctx: RuleContext): Finding[] {
+      const findings: Finding[] = [];
+      const error = (message: string) => findings.push(make(this, skill, ctx, "error", message));
+      const warn = (message: string) => findings.push(make(this, skill, ctx, "warning", message));
 
-    // A parse failure means the frontmatter block is untrustworthy. Report it
-    // once and don't pile on with derived name/description complaints. Applies
-    // to every format \u2014 malformed YAML is malformed YAML.
-    if (skill.error) {
-      error(skill.error);
+      // Fallback parsers may accept malformed YAML, but read failures are
+      // always errors: no host can load content we could not inspect.
+      if (skill.error) {
+        if (options.parseErrorSeverity === "warning" &&
+            !skill.error.startsWith("could not read file:")) {
+          warn(skill.error);
+        } else {
+          error(skill.error);
+        }
+        return findings;
+      }
+
+      const { name, description } = skill.frontmatter;
+
+      // Other agent-context formats have no required-frontmatter contract.
+      if (isSkillFormat(skill.format)) {
+        if (required.includes("name") && !isNonEmptyString(name)) {
+          error(
+            isMissing(name)
+              ? "missing required frontmatter field `name`"
+              : "frontmatter field `name` must be a non-empty string",
+          );
+        }
+
+        if (required.includes("description") && !isNonEmptyString(description)) {
+          error(
+            isMissing(description)
+              ? "missing required frontmatter field `description`"
+              : "frontmatter field `description` must be a non-empty string",
+          );
+        }
+      }
+
+      if (
+        isNonEmptyString(description) &&
+        maxDescriptionLength !== null &&
+        description.trim().length > maxDescriptionLength
+      ) {
+        warn(
+          `frontmatter \`description\` is ${description.trim().length} chars ` +
+            `(over ${maxDescriptionLength}); trim it to save context tokens`,
+        );
+      }
+
       return findings;
-    }
+    },
+  };
+}
 
-    const { name, description } = skill.frontmatter;
-
-    // Required-field contract: skills only. Non-skill formats have no such
-    // contract, so we skip these checks entirely and degrade gracefully.
-    if (isSkillFormat(skill.format)) {
-      if (!isNonEmptyString(name)) {
-        error(
-          isMissing(name)
-            ? "missing required frontmatter field `name`"
-            : "frontmatter field `name` must be a non-empty string",
-        );
-      }
-
-      if (!isNonEmptyString(description)) {
-        error(
-          isMissing(description)
-            ? "missing required frontmatter field `description`"
-            : "frontmatter field `description` must be a non-empty string",
-        );
-      }
-    }
-
-    // Overlong-description check runs for *any* format that actually declares a
-    // string description \u2014 an essay in frontmatter wastes context tokens no
-    // matter the file type. For a skill missing its description the block above
-    // already errored; this simply won't fire.
-    if (
-      isNonEmptyString(description) &&
-      description.trim().length > MAX_DESCRIPTION_LENGTH
-    ) {
-      warn(
-        `frontmatter \`description\` is ${description.trim().length} chars ` +
-          `(over ${MAX_DESCRIPTION_LENGTH}); trim it to save context tokens`,
-      );
-    }
-
-    return findings;
-  },
-};
+export const frontmatterRule = makeFrontmatterRule();
 
 /** Build a finding pinned to the frontmatter rule, routed through ctx for severity. */
 function make(
+  rule: Rule,
   skill: ParsedSkill,
   ctx: RuleContext,
   severity: Finding["severity"],
   message: string,
 ): Finding {
   return {
-    ruleId: frontmatterRule.id,
-    severity: ctx.severityFor(frontmatterRule, severity),
+    ruleId: rule.id,
+    severity: ctx.severityFor(rule, severity),
     message,
     path: skill.path,
   };

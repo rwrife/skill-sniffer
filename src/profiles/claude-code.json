@@ -1,0 +1,14 @@
+{
+  "id": "claude-code",
+  "requiredFields": [],
+  "allowedFrontmatterKeys": ["name", "description", "when_to_use", "argument-hint", "arguments", "disable-model-invocation", "user-invocable", "allowed-tools", "disallowed-tools", "model", "effort", "context", "agent", "background", "hooks", "paths", "shell", "metadata", "license", "compatibility"],
+  "forbiddenFrontmatterKeys": [],
+  "maxDescriptionLength": 1536,
+  "descriptionSuffixField": "when_to_use",
+  "maxBytes": null,
+  "tokenBudget": 5000,
+  "discoveryGlobs": [".claude/skills/*/SKILL.md"],
+  "parseErrorSeverity": "warning",
+  "sources": ["https://code.claude.com/docs/en/skills", "https://agentskills.io/specification"],
+  "notes": "Local Claude Code skills, not claude.ai uploads. Fields are optional; unknown fields are ignored. Combined description + when_to_use is truncated at 1536 characters. No verified per-file byte rejection limit. Token budget is a spec recommendation, not a rejection limit. Discovery globs describe project installation, not the input scan root."
+}
