@@ -69,19 +69,14 @@ export const brokenPathsRule: Rule = {
     // (no readable file) can't be path-checked meaningfully, so skip them.
     if (!skill.raw || !skill.path) return [];
 
-    const baseDir = dirname(skill.path);
     const findings: Finding[] = [];
     const seen = new Set<string>();
 
-    const consider = (candidate: string, line: number, column: number) => {
-      const ref = cleanRef(candidate);
-      if (!ref || !isCheckablePath(ref)) return;
-
-      const abs = safeResolve(baseDir, ref);
-      if (abs === undefined || existsSync(abs)) return;
+    for (const { ref, path: abs, line, column } of localReferences(skill)) {
+      if (existsSync(abs)) continue;
 
       const key = `${line}:${column}:${ref}`;
-      if (seen.has(key)) return;
+      if (seen.has(key)) continue;
       seen.add(key);
 
       findings.push({
@@ -92,21 +87,32 @@ export const brokenPathsRule: Rule = {
         line,
         column,
       });
-    };
-
-    // Markdown links/images: report the position of the captured target.
-    for (const m of findMatches(skill.raw, MD_LINK, 1)) {
-      consider(m.text, m.line, m.column);
-    }
-
-    // Inline code spans that look like paths.
-    for (const m of findMatches(skill.raw, INLINE_CODE, 1)) {
-      consider(m.text, m.line, m.column);
     }
 
     return findings;
   },
 };
+
+/** Shared local-reference extraction and resolution for linting and traversal. */
+export function localReferences(skill: ParsedSkill, commandPaths = false): {
+  ref: string; path: string; line: number; column: number;
+}[] {
+  const refs = [];
+  const patterns = [MD_LINK, INLINE_CODE];
+  if (commandPaths) {
+    // Explicit bundle paths also occur in commands, e.g. `bash scripts/setup.sh`.
+    patterns.push(/(?:^|[\s`"'(])((?:\.\.?\/|(?:scripts|assets|references)\/)[^\s`"'<>()[\];|&]+)/g);
+  }
+  for (const pattern of patterns) {
+    for (const m of findMatches(skill.raw, pattern, 1)) {
+      const ref = cleanRef(m.text);
+      if (!isCheckablePath(ref)) continue;
+      const path = safeResolve(dirname(skill.path), ref);
+      if (path !== undefined) refs.push({ ref, path, line: m.line, column: m.column });
+    }
+  }
+  return refs;
+}
 
 /** Strip a leading `./`, trailing slashes, and an optional anchor/query tail. */
 function cleanRef(raw: string): string {

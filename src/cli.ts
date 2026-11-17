@@ -20,6 +20,7 @@ import { resolve as resolvePath } from "node:path";
 import { canonicalFormat, ALL_FORMATS } from "./format.js";
 import { parseSkills } from "./parse.js";
 import { runEngine, buildRuleSet } from "./engine.js";
+import { DEFAULT_REF_DEPTH, validateRefDepth, type FollowRefsOptions } from "./refs.js";
 import {
   loadInjectionPack,
   loadBundledInjectionPack,
@@ -60,7 +61,7 @@ import {
 } from "./badge.js";
 
 /** Parsed CLI options for the sniff action. */
-interface SniffOptions {
+interface SniffOptions extends FollowRefsOptions {
   json?: boolean;
   /**
    * SARIF 2.1.0 output. `true` (bare `--sarif`) writes SARIF to stdout; a
@@ -663,6 +664,12 @@ export function buildProgram(): Command {
 
   program
     .argument("[paths...]", "skill file(s) or director(ies) to sniff")
+    .option("--follow-refs", "also sniff locally referenced bundled files as text (never execute)")
+    .option(
+      "--max-ref-depth <n>",
+      `maximum reference edges to follow (default ${DEFAULT_REF_DEPTH}; requires --follow-refs)`,
+      parseIntOption("max-ref-depth"),
+    )
     .option("--json", "emit a machine-readable JSON report instead of pretty output")
     .option(
       "--sarif [path]",
@@ -739,6 +746,13 @@ export function buildProgram(): Command {
       "use a custom versioned injection signature pack (JSON) instead of the bundled default",
     )
     .action(async (paths: string[], opts: SniffOptions) => {
+      if (opts.maxRefDepth !== undefined) {
+        validateRefDepth(opts.maxRefDepth);
+        if (!opts.followRefs) throw new Error("--max-ref-depth requires --follow-refs");
+      }
+      if (opts.followRefs && opts.fix) {
+        throw new Error("--follow-refs cannot be combined with --fix (references are read-only)");
+      }
       // --init is a standalone action: scaffold config, then exit.
       if (opts.init) {
         const result = writeConfigStub();
@@ -885,7 +899,9 @@ export function buildProgram(): Command {
       });
 
       const rules = await resolveRuleSet(config);
-      const report = runEngine(skills, { config, rules });
+      const report = runEngine(skills, {
+        config, rules, followRefs: opts.followRefs, maxRefDepth: opts.maxRefDepth,
+      });
       const scored = scoreReport(
         report,
         skills.map((s) => s.path),
@@ -972,6 +988,8 @@ async function runWatch(paths: string[], opts: SniffOptions): Promise<void> {
   const handle = await startWatch(paths, {
     include: opts.include,
     exclude: opts.exclude,
+    followRefs: opts.followRefs,
+    maxRefDepth: opts.maxRefDepth,
   });
 
   await new Promise<void>((resolve) => {

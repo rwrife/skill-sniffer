@@ -11,6 +11,8 @@ import { makeTokenBloatRule } from "./rules/token-bloat.js";
 import { makeInjectionRule } from "./rules/injection.js";
 import { loadInjectionPack } from "./packs.js";
 import { loadPlugins } from "./plugins.js";
+import { extname } from "node:path";
+import { DEFAULT_REF_DEPTH, followReferences, type FollowRefsOptions } from "./refs.js";
 import {
   defaultConfig,
   selectRules,
@@ -25,7 +27,7 @@ const SEVERITY_RANK: Record<Severity, number> = {
 };
 
 /** Tuning passed to {@link runEngine}. All optional; sensible defaults apply. */
-export interface EngineOptions {
+export interface EngineOptions extends FollowRefsOptions {
   /**
    * Resolved project config. Drives which rules run (disabled rules are
    * dropped), per-rule severity overrides, and the token budget. Defaults to
@@ -67,10 +69,17 @@ export function runEngine(
   const effectiveRules = applyConfigToRules(baseRules, config);
 
   const ctx = createContext(config);
-  const findings: Finding[] = [];
+  const followed = options.followRefs
+    ? followReferences(skills, options.maxRefDepth ?? DEFAULT_REF_DEPTH)
+    : undefined;
+  const findings: Finding[] = [...(followed?.findings ?? [])];
+  const roots = new Set(skills.map((s) => s.path));
+  const textRules = new Set(["secrets", "provenance", "injection"]);
 
-  for (const skill of skills) {
+  for (const skill of followed?.files ?? skills) {
     for (const rule of effectiveRules) {
+      if (!roots.has(skill.path) && extname(skill.path).toLowerCase() !== ".md" &&
+          !textRules.has(rule.id)) continue;
       findings.push(...safeRun(rule, skill, ctx));
     }
   }
@@ -81,6 +90,7 @@ export function runEngine(
     findings,
     skillsChecked: skills.length,
     counts: tally(findings),
+    ...(followed ? { referencedPaths: followed.referencedPaths } : {}),
   };
 }
 

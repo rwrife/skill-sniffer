@@ -74,7 +74,8 @@ export function scoreReport(
   }
 
   const scores: SkillScore[] = orderedPaths.map((path) => {
-    const findings = byPath.get(path) ?? [];
+    const sources = new Set([path, ...(report.referencedPaths?.[path] ?? [])]);
+    const findings = [...sources].flatMap((source) => byPath.get(source) ?? []);
     return {
       path,
       score: scoreFindings(findings),

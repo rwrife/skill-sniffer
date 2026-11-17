@@ -5,6 +5,7 @@ import pc from "picocolors";
 import { discoverSkills, type DiscoverOptions } from "./discover.js";
 import { parseSkills } from "./parse.js";
 import { runEngine, buildRuleSet } from "./engine.js";
+import type { FollowRefsOptions } from "./refs.js";
 import { scoreReport } from "./score.js";
 import { renderPretty } from "./report/pretty.js";
 import { loadConfig } from "./config.js";
@@ -93,7 +94,7 @@ export type Sink = (chunk: string) => void;
  */
 export type SniffRunner = (
   paths: string[],
-  options: DiscoverOptions,
+  options: DiscoverOptions & FollowRefsOptions,
 ) => Promise<SniffResult>;
 
 /** Result of a single watch-mode sniff: what to print and the score. */
@@ -107,7 +108,7 @@ export interface SniffResult {
 }
 
 /** Options for {@link startWatch}. */
-export interface WatchOptions extends DiscoverOptions {
+export interface WatchOptions extends DiscoverOptions, FollowRefsOptions {
   /** Debounce window in ms (default {@link DEFAULT_DEBOUNCE_MS}). */
   debounceMs?: number;
   /** Clear the screen before each cycle's report (default true). */
@@ -150,9 +151,12 @@ export async function startWatch(
   const clock: Clock = options.clock ?? globalClock;
   const sink: Sink = options.sink ?? ((c) => process.stdout.write(c));
   const resolveDirs = options.resolveWatchDirs ?? watchDirsFor;
-  const discoverOpts: DiscoverOptions = {
+  const discoverOpts: DiscoverOptions & FollowRefsOptions = {
     include: options.include,
     exclude: options.exclude,
+    ...(options.followRefs ? {
+      followRefs: options.followRefs, maxRefDepth: options.maxRefDepth,
+    } : {}),
   };
 
   let stopped = false;
@@ -389,7 +393,7 @@ async function listSubdirs(dir: string): Promise<string[]> {
  */
 export async function sniffOnce(
   paths: string[],
-  options: DiscoverOptions = {},
+  options: DiscoverOptions & FollowRefsOptions = {},
 ): Promise<SniffResult> {
   const files = await discoverSkills(paths, options);
   if (files.length === 0) {
@@ -405,7 +409,9 @@ export async function sniffOnce(
   // Plugin errors in watch mode degrade gracefully: surface them as output
   // rather than crashing the watcher; the built-in rules still run.
   const { rules, errors } = await buildRuleSet(config);
-  const report = runEngine(skills, { config, rules });
+  const report = runEngine(skills, {
+    config, rules, followRefs: options.followRefs, maxRefDepth: options.maxRefDepth,
+  });
   const scored = scoreReport(
     report,
     skills.map((s) => s.path),
