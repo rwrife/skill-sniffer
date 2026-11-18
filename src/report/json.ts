@@ -57,6 +57,12 @@ export function renderJson(
 
   // Only present when linting with `--baseline` (issue #32).
   if (baseline) payload.baseline = baseline;
+  if (report.suppressedFindings) {
+    payload.suppressedFindings = report.suppressedFindings.map((f) => ({
+      ...serializeFinding(f),
+      suppression: f.suppression,
+    }));
+  }
 
   return JSON.stringify(payload, null, pretty ? 2 : 0) + "\n";
 }

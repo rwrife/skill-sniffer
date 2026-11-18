@@ -34,6 +34,7 @@ export {
 export { parseSkill, parseSkills } from "./parse.js";
 export { runEngine } from "./engine.js";
 export type { EngineOptions } from "./engine.js";
+export type { InlineDisableOptions } from "./suppressions.js";
 export {
   loadConfig,
   normalizeConfig,
@@ -93,6 +94,7 @@ export type {
   SkillFormat,
   Severity,
   Finding,
+  SuppressedFinding,
   Rule,
   RuleContext,
   Report,

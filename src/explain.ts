@@ -71,6 +71,12 @@ export function renderRule(rule: Rule): string {
     lines.push(indent(rule.example.good, pc.green));
   }
 
+  lines.push("", pc.bold("Inline suppression"));
+  lines.push(`<!-- skill-sniffer-disable-next-line ${rule.id} reviewed fixture -->`);
+  lines.push(`Ranges: <!-- skill-sniffer-disable ${rule.id} reason --> ... <!-- skill-sniffer-enable ${rule.id} -->`);
+  lines.push("Comma-separate rule ids; omit ids for all rules. Only findings with source lines can be suppressed.");
+  lines.push("Unused/dangling disables warn. --report-suppressed shows reasons; --no-inline-disable ignores directives for audits.");
+
   return lines.join("\n");
 }
 
@@ -94,6 +100,9 @@ export function renderList(): string {
     const sevCol = sev + " ".repeat(sevWidth - r.defaultSeverity.length);
     lines.push(`  ${id}  ${sevCol}  ${r.description}`);
   }
+  lines.push("", "Inline suppression: <!-- skill-sniffer-disable-next-line <rule-id>[,<rule-id>] reason -->");
+  lines.push("Ranges: <!-- skill-sniffer-disable <rule-id> --> ... <!-- skill-sniffer-enable <rule-id> -->");
+  lines.push("Omit ids for all rules. --report-suppressed lists reasons; --no-inline-disable audits without suppressions.");
   return lines.join("\n");
 }
 
