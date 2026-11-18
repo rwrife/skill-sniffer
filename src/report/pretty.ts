@@ -26,6 +26,7 @@ export function renderPretty(report: Report): string {
       ),
     );
     if (isScored(report)) lines.push(scoreLine(report.score));
+    appendSuppressed(lines, report);
     return lines.join("\n") + "\n";
   }
 
@@ -39,7 +40,17 @@ export function renderPretty(report: Report): string {
 
   lines.push(summaryLine(report));
   if (isScored(report)) lines.push(scoreLine(report.score));
+  appendSuppressed(lines, report);
   return lines.join("\n") + "\n";
+}
+
+function appendSuppressed(lines: string[], report: Report): void {
+  if (!report.suppressedFindings?.length) return;
+  lines.push("", "Suppressed findings (not scored or gated):");
+  for (const f of report.suppressedFindings) {
+    lines.push(`  ${f.path} ${formatFinding(f)}`);
+    lines.push(`    directive :${f.suppression.line}; reason: ${f.suppression.reason ?? "(not provided)"}`);
+  }
 }
 
 /**

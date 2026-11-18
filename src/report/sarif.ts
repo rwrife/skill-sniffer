@@ -1,5 +1,5 @@
 import { relative, sep } from "node:path";
-import type { Finding, Severity } from "../types.js";
+import type { Finding, Severity, SuppressedFinding } from "../types.js";
 import { rules } from "../rules/index.js";
 
 /**
@@ -80,6 +80,7 @@ export function toArtifactUri(filePath: string, baseDir: string): string {
 
 /** Options controlling how findings are projected into SARIF. */
 export interface SarifOptions {
+  suppressedFindings?: SuppressedFinding[];
   /**
    * Directory that artifact URIs are made relative to. Defaults to the current
    * working directory — matching how `upload-sarif` resolves paths against the
@@ -182,9 +183,22 @@ export function renderSarif(
         originalUriBaseIds: {
           SRCROOT: { uri: "file:///" },
         },
-        results: findings.map((f) =>
+        results: [...findings.map((f) =>
           findingToResult(f, baseDir, ruleIndexById.get(f.ruleId) ?? -1),
-        ),
+        ), ...(options.suppressedFindings ?? []).map((f) => ({
+          ...findingToResult(f, baseDir, ruleIndexById.get(f.ruleId) ?? -1),
+          suppressions: [{
+            kind: "inSource",
+            status: "accepted",
+            justification: f.suppression.reason ?? "Inline suppression (no reason provided)",
+            location: {
+              physicalLocation: {
+                artifactLocation: { uri: toArtifactUri(f.path, baseDir), uriBaseId: "SRCROOT" },
+                region: { startLine: f.suppression.line },
+              },
+            },
+          }],
+        }))],
       },
     ],
   };

@@ -112,6 +112,49 @@ Example
 
 Everything is fully offline and zero-dependency — the docs live with the rules.
 
+### Inline suppressions
+
+Document reviewed, intentional findings with single-line HTML comments:
+
+```markdown
+<!-- skill-sniffer-disable-next-line injection,secrets reviewed test fixture -->
+ignore previous instructions; -----BEGIN PRIVATE KEY-----
+
+<!-- skill-sniffer-disable injection reviewed examples -->
+ignore previous instructions
+ignore all previous instructions
+<!-- skill-sniffer-enable injection -->
+```
+
+`disable-next-line` applies only to the immediately following physical source
+line (including frontmatter in line numbering). `disable` applies after its
+comment line until the matching `enable` line, exclusive. Comma-separate rule
+IDs without spaces; any text after the IDs is an optional reason. Bare
+`<!-- skill-sniffer-disable-next-line -->` and
+`<!-- skill-sniffer-disable -->` suppress all rules in their scope;
+`<!-- skill-sniffer-enable -->` re-enables all rules. A named `enable` re-enables
+only those rules, including inside a bare range. Directives are file-local and
+also work in referenced files scanned with `--follow-refs`.
+
+Suppression is an engine post-filter: rules are unchanged, and findings without
+a source line (including rule crashes) cannot be suppressed. Unused disables
+(including unused IDs in a list) and ranges left open at EOF produce
+`inline-disable` warnings. Those warnings cannot themselves be suppressed and
+count toward scores and warning gates like other warnings.
+
+```bash
+skill-sniffer ./skills --report-suppressed
+skill-sniffer ./skills --json --report-suppressed
+skill-sniffer ./skills --no-inline-disable  # audit: ignore every inline directive
+```
+
+Suppressed findings are absent from normal reports, counts, scores, baselines,
+and exit-code gates. `--report-suppressed` lists them separately with the
+directive line and optional reason: JSON adds `suppressedFindings`, and SARIF
+marks them as accepted `inSource` suppressions. Showing them never changes the
+score or exit code. Both flags also work with `--watch`; `--no-inline-disable`
+ignores directive diagnostics too.
+
 ### Good Boy Score™
 
 Every file starts at **100** and loses points per scent — **error −25**,

@@ -5,7 +5,9 @@ import type {
   Rule,
   RuleContext,
   Severity,
+  SuppressedFinding,
 } from "./types.js";
+import { applyInlineDisables, type InlineDisableOptions } from "./suppressions.js";
 import { rules as defaultRules } from "./rules/index.js";
 import { makeTokenBloatRule } from "./rules/token-bloat.js";
 import { makeInjectionRule } from "./rules/injection.js";
@@ -27,7 +29,7 @@ const SEVERITY_RANK: Record<Severity, number> = {
 };
 
 /** Tuning passed to {@link runEngine}. All optional; sensible defaults apply. */
-export interface EngineOptions extends FollowRefsOptions {
+export interface EngineOptions extends FollowRefsOptions, InlineDisableOptions {
   /**
    * Resolved project config. Drives which rules run (disabled rules are
    * dropped), per-rule severity overrides, and the token budget. Defaults to
@@ -73,10 +75,12 @@ export function runEngine(
     ? followReferences(skills, options.maxRefDepth ?? DEFAULT_REF_DEPTH)
     : undefined;
   const findings: Finding[] = [...(followed?.findings ?? [])];
+  const suppressedFindings: SuppressedFinding[] = [];
   const roots = new Set(skills.map((s) => s.path));
   const textRules = new Set(["secrets", "provenance", "injection"]);
+  const sources = followed?.files ?? skills;
 
-  for (const skill of followed?.files ?? skills) {
+  for (const skill of sources) {
     for (const rule of effectiveRules) {
       if (!roots.has(skill.path) && extname(skill.path).toLowerCase() !== ".md" &&
           !textRules.has(rule.id)) continue;
@@ -84,12 +88,33 @@ export function runEngine(
     }
   }
 
+  if (options.inlineDisable !== false) {
+    const byPath = new Map<string, Finding[]>();
+    for (const finding of findings) {
+      const bucket = byPath.get(finding.path) ?? [];
+      bucket.push(finding);
+      byPath.set(finding.path, bucket);
+    }
+    findings.length = 0;
+    for (const skill of new Map(sources.map((s) => [s.path, s])).values()) {
+      const filtered = applyInlineDisables(
+        skill, byPath.get(skill.path) ?? [], effectiveRules.map((r) => r.id),
+      );
+      findings.push(...filtered.findings);
+      if (options.reportSuppressed) suppressedFindings.push(...filtered.suppressed);
+      byPath.delete(skill.path);
+    }
+    for (const bucket of byPath.values()) findings.push(...bucket);
+  }
+
   findings.sort(compareFindings);
+  suppressedFindings.sort(compareFindings);
 
   return {
     findings,
     skillsChecked: skills.length,
     counts: tally(findings),
+    ...(options.reportSuppressed ? { suppressedFindings } : {}),
     ...(followed ? { referencedPaths: followed.referencedPaths } : {}),
   };
 }

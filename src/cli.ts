@@ -20,6 +20,7 @@ import { resolve as resolvePath } from "node:path";
 import { canonicalFormat, ALL_FORMATS } from "./format.js";
 import { parseSkills } from "./parse.js";
 import { runEngine, buildRuleSet } from "./engine.js";
+import type { InlineDisableOptions } from "./suppressions.js";
 import { DEFAULT_REF_DEPTH, validateRefDepth, type FollowRefsOptions } from "./refs.js";
 import {
   loadInjectionPack,
@@ -61,7 +62,7 @@ import {
 } from "./badge.js";
 
 /** Parsed CLI options for the sniff action. */
-interface SniffOptions extends FollowRefsOptions {
+interface SniffOptions extends FollowRefsOptions, InlineDisableOptions {
   json?: boolean;
   /**
    * SARIF 2.1.0 output. `true` (bare `--sarif`) writes SARIF to stdout; a
@@ -671,6 +672,8 @@ export function buildProgram(): Command {
       parseIntOption("max-ref-depth"),
     )
     .option("--json", "emit a machine-readable JSON report instead of pretty output")
+    .option("--report-suppressed", "list inline-suppressed findings and reasons without scoring or gating them")
+    .option("--no-inline-disable", "ignore inline suppression directives for audits")
     .option(
       "--sarif [path]",
       "emit a SARIF 2.1.0 report for GitHub code-scanning; writes to <path> if given, else stdout (stdout is mutually exclusive with --json)",
@@ -901,6 +904,7 @@ export function buildProgram(): Command {
       const rules = await resolveRuleSet(config);
       const report = runEngine(skills, {
         config, rules, followRefs: opts.followRefs, maxRefDepth: opts.maxRefDepth,
+        inlineDisable: opts.inlineDisable, reportSuppressed: opts.reportSuppressed,
       });
       const scored = scoreReport(
         report,
@@ -933,7 +937,9 @@ export function buildProgram(): Command {
       const sarifToFile = typeof opts.sarif === "string";
       const sarifToStdout = opts.sarif === true;
       if (sarifToFile) {
-        const sarif = renderSarif(effectiveScored.findings, getVersion());
+        const sarif = renderSarif(effectiveScored.findings, getVersion(), {
+          suppressedFindings: effectiveScored.suppressedFindings,
+        });
         writeFileSync(opts.sarif as string, sarif, "utf8");
         process.stderr.write(
           `${pc.dim(`\u2192 wrote SARIF to ${opts.sarif as string}`)}\n`,
@@ -941,7 +947,9 @@ export function buildProgram(): Command {
       }
 
       if (sarifToStdout) {
-        process.stdout.write(renderSarif(effectiveScored.findings, getVersion()));
+        process.stdout.write(renderSarif(effectiveScored.findings, getVersion(), {
+          suppressedFindings: effectiveScored.suppressedFindings,
+        }));
       } else if (opts.json) {
         process.stdout.write(
           renderJson(
@@ -990,6 +998,8 @@ async function runWatch(paths: string[], opts: SniffOptions): Promise<void> {
     exclude: opts.exclude,
     followRefs: opts.followRefs,
     maxRefDepth: opts.maxRefDepth,
+    inlineDisable: opts.inlineDisable,
+    reportSuppressed: opts.reportSuppressed,
   });
 
   await new Promise<void>((resolve) => {

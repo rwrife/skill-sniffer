@@ -91,6 +91,14 @@ export interface Finding {
   column?: number;
 }
 
+export interface SuppressedFinding extends Finding {
+  suppression: {
+    /** Source line of the disabling directive, not the finding. */
+    line: number;
+    reason?: string;
+  };
+}
+
 /**
  * Context handed to a rule's `run()`. Kept deliberately small; the engine builds
  * one per run and threads it through every rule. Config-driven severity
@@ -159,6 +167,8 @@ export interface RuleExample {
  * of findings plus cheap roll-up counts. The pretty/JSON reporters render this.
  */
 export interface Report {
+  /** Present only when explicitly requested; never included in counts or scores. */
+  suppressedFindings?: SuppressedFinding[];
   /** Reachable bundled source paths per input skill, when following references. */
   referencedPaths?: Record<string, string[]>;
   /** Every finding across every skill, in a stable order. */
