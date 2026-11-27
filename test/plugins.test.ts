@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
@@ -17,7 +17,8 @@ import type { ParsedSkill } from "../src/types.js";
 
 const scratch: string[] = [];
 function tmp(): string {
-  const dir = mkdtempSync(join(tmpdir(), "sniff-plugin-"));
+  // Vitest's module resolver misinterprets encoded Windows short-path tildes.
+  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sniff-plugin-"));
   scratch.push(dir);
   return dir;
 }

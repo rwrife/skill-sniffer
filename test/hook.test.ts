@@ -8,6 +8,7 @@ import {
   readFileSync,
   existsSync,
   statSync,
+  realpathSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
@@ -61,7 +62,7 @@ describe("installHook", () => {
     const res = installHook({ cwd: repo });
     expect(res.action).toBe("created");
     const hookPath = join(repo, ".git", "hooks", "pre-commit");
-    expect(res.path).toBe(hookPath);
+    expect(realpathSync(res.path)).toBe(realpathSync(hookPath));
     expect(existsSync(hookPath)).toBe(true);
 
     const body = readFileSync(hookPath, "utf8");

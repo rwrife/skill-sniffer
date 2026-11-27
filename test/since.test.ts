@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeAll, afterAll } from "vitest";
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
+import { mkdtempSync, rmSync, mkdirSync, writeFileSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import {
@@ -173,6 +173,21 @@ describe("discover — intersectChanged", () => {
   it("normalizes both sides to absolute paths before comparing", () => {
     const discovered = [resolve("x/SKILL.md")];
     expect(intersectChanged(discovered, ["x/SKILL.md"])).toEqual([resolve("x/SKILL.md")]);
+  });
+
+  it("matches filesystem aliases while preserving the discovered path", () => {
+    const dir = mkdtempSync(join(tmpdir(), "sniffer-alias-"));
+    try {
+      const target = join(dir, "target");
+      const alias = join(dir, "alias");
+      mkdirSync(target);
+      writeFileSync(join(target, "SKILL.md"), "fixture");
+      symlinkSync(target, alias, process.platform === "win32" ? "junction" : "dir");
+      const discovered = join(alias, "SKILL.md");
+      expect(intersectChanged([discovered], [join(target, "SKILL.md")])).toEqual([discovered]);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("returns [] when nothing overlaps", () => {
