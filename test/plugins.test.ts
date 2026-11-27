@@ -18,7 +18,7 @@ import type { ParsedSkill } from "../src/types.js";
 const scratch: string[] = [];
 function tmp(): string {
   // Vitest's module resolver misinterprets encoded Windows short-path tildes.
-  const dir = mkdtempSync(join(realpathSync(tmpdir()), "sniff-plugin-"));
+  const dir = mkdtempSync(join(realpathSync.native(tmpdir()), "sniff-plugin-"));
   scratch.push(dir);
   return dir;
 }
