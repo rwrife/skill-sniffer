@@ -51,6 +51,10 @@ an unrecognized name prints a warning and is ignored.
 
 ## Quick start
 
+The project has no release tag yet. For use now, build from a checkout as shown
+in [Local development](#local-development); the `npx` examples below assume a
+future npm publication.
+
 ```bash
 # (once published)
 npx skill-sniffer ./skills
@@ -419,7 +423,7 @@ ships a `.pre-commit-hooks.yaml` manifest. Add it to your
 
 ```yaml
 - repo: https://github.com/rwrife/skill-sniffer
-  rev: v0.1.0            # pin to a released tag
+  rev: 06af0febc6ba7a83a8fe844cb383073ef97bb7e1  # pin a reviewed commit
   hooks:
     - id: skill-sniffer
 ```
@@ -608,7 +612,7 @@ jobs:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0      # so the action can diff against the PR base
-      - uses: rwrife/skill-sniffer@v1
+      - uses: rwrife/skill-sniffer@06af0febc6ba7a83a8fe844cb383073ef97bb7e1
         with:
           min-score: "80"     # fail the check if any changed skill scores < 80
 ```
@@ -629,7 +633,7 @@ To also surface findings in code-scanning, set the `sarif` input and add an
 upload step:
 
 ```yaml
-      - uses: rwrife/skill-sniffer@v1
+      - uses: rwrife/skill-sniffer@06af0febc6ba7a83a8fe844cb383073ef97bb7e1
         with:
           sarif: skill-sniffer.sarif
       - uses: github/codeql-action/upload-sarif@v3
@@ -830,6 +834,7 @@ rewrite, so you don't hand-edit boilerplate:
   block scalars are preserved verbatim (no YAML re-serialization).
 - **Trims trailing whitespace** on every line.
 - **Collapses redundant blank lines** (3+ → 1) and normalizes the trailing newline.
+  LF and CRLF files retain their newline style.
 
 It is **safe by construction**: `--fix` never rewrites prompt-injection *intent*
 and never touches secrets — those stay reported for a human to handle. It's also
@@ -890,7 +895,7 @@ $ node bin/skill-sniffer ./skills
 
 ## Status
 
-✅ **v0.1 feature-complete** (M1–M6). The full v0.1 ruleset, Good Boy Score™, `--json`, and CI gates are in. **v0.2 in progress:** `--fix` auto-cleanup, `.skillsnifferrc` config (rule enable/disable, severity overrides, tunable budget/gates), custom rule plugins (`plugins`), and multi-format support (`AGENTS.md` / `CLAUDE.md` / `.cursorrules` / MCP manifests) have landed.
+✅ **Feature-complete for the documented roadmap**, including M1–M6 and the listed v0.2+ features. Compatibility profiles are conservative static checks, not guarantees of host behavior. The repository has not been tagged for release.
 
 - **M1 — Scaffold + hello-world ✅** TS/ESM project, `commander` CLI, `--version`, CI (build + test) on Node 18/20/22.
 - **M2 — Parse + discover ✅** Recursive discovery of `SKILL.md` / `*.skill.md`, gray-matter frontmatter parsing into a `ParsedSkill` (`{ path, frontmatter, body, raw, error? }`), graceful handling of missing / empty / malformed-YAML files.
@@ -899,7 +904,7 @@ $ node bin/skill-sniffer ./skills
 - **M5 — Token-bloat + broken-path + tool-scope rules ✅** Rounds out the v0.1 ruleset. `token-bloat` estimates token weight (chars/4 heuristic) and warns past a configurable budget (default 2000). `broken-paths` extracts relative file references (markdown links/images + path-shaped inline code), resolves each against the **skill's own directory**, and errors on the ones missing from disk — URLs, anchors, and absolute/home paths are deliberately ignored. `tool-scope` flags wildcard / overly broad tool grants both in frontmatter (`allowed-tools: { exec: "*" }`, bare `*` in arrays) and in prose ("any shell command", "run arbitrary code", "unrestricted access").
 - **M6 — Good Boy Score + JSON + CI gates ✅** Makes it scorable and CI-friendly. `score.ts` turns findings into a **Good Boy Score™** (0–100) per file and overall (the overall is the *minimum* per-file score, so the weakest skill sets the grade). `--json` emits a stable, schema-versioned (`skill-sniffer/report@1`) machine report. CI gates: `--min-score <n>` and `--max-warnings <n>` with proper non-zero exit codes (`0` clean, `1` gate tripped, `2` usage error); errors always fail, warnings/info only fail behind a gate. `--init` writes a `.skillsnifferrc` config stub (never clobbering an existing one).
 - **v0.2 — `--fix` auto-cleanup ✅** Mechanically rewrites the *unambiguously safe* findings: strips invisible/bidi chars, reorders frontmatter (`name`/`description` first, formatting preserved), trims trailing whitespace, and collapses redundant blank lines. Safe by construction — never rewrites prompt-injection intent or secrets — idempotent, and skips malformed YAML. `--dry-run` previews the changes as a unified diff.
-- **v0.2 — GitHub Action + PR score comment ✅** A drop-in `uses: rwrife/skill-sniffer@v1` composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
+- **v0.2 — GitHub Action + PR score comment ✅** A composite action that lints the **changed** skill files in a PR (three-dot `base...HEAD` diff), then posts/updates a single *sticky* comment with a pass/fail headline, a per-file Good Boy Score™ table, and the loudest findings. A `min-score` input fails the check; `comment: false` runs it as a silent gate; it exposes `score`/`passed`/`findings` outputs. See the [GitHub Action](#github-action-pr-scores) usage above.
 - **v0.2 — Multi-format support ✅** Discovers and lints `AGENTS.md`, `CLAUDE.md`, `.cursorrules` / `.cursor/rules/**.mdc`, and MCP manifests (`mcp.json` / `*.mcp.json`) alongside native `SKILL.md`. Format-agnostic rules (secrets, injection, provenance, token-bloat, broken-paths) run on all of them; the frontmatter `name`/`description` contract applies to skills only and degrades gracefully elsewhere. `--include` / `--exclude` choose which formats to scan.
 - **v0.2 — `provenance` rule ✅** Flags the SKILL.md equivalent of an unpinned dependency: what a skill tells the agent to *fetch and run*. Errors on remote-code-execution shapes — pipe-to-shell (`curl … | bash`, `wget … | sh`, PowerShell `iwr … | iex`) and opaque fetch-and-run (`bash <(curl …)`, `sh -c "$(curl …)"`). Warns on unpinned supply-chain patterns — floating installs (`npx pkg@latest` / bare `npx pkg`, `npm i -g` without a pin, unpinned `uvx`/`pipx run`, `pip install` off a URL), unpinned GitHub Actions (`uses: owner/action@main` — full 40-hex commit SHAs pass), and sketchy fetch hosts (URL shorteners, raw-IP `http://`). Pinned equivalents (`pkg@1.2.3`, `pkg==1.2.3`, `@<sha>`, checksum-verified downloads) don't fire, keeping false positives low. Fully static/offline — it never makes the request, just flags the instruction — with line/column, scoring, all report formats, and `explain provenance`.
 - **v0.2 — SARIF output ✅** `--sarif [path]` emits a **SARIF 2.1.0** report (backlog item #6) so findings surface natively in **GitHub code-scanning** (Security tab + inline PR annotations) via `github/codeql-action/upload-sarif`. Maps severity → SARIF level (`error`/`warning`/`note`), emits the rule registry as `reportingDescriptor`s, and uses **repo-relative** artifact URIs; findings with a line get a `region`, whole-file ones degrade to file-level. The GitHub Action gained a `sarif` input to write the file for a downstream upload step. See the [SARIF output](#sarif-output---sarif--findings-in-the-github-ui) section above.

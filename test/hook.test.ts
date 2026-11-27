@@ -71,8 +71,10 @@ describe("installHook", () => {
     expect(body.startsWith("#!")).toBe(true);
 
     // Executable bit set (best-effort; on POSIX filesystems it must be).
-    const mode = statSync(hookPath).mode;
-    expect(mode & 0o100).toBe(0o100);
+    if (process.platform !== "win32") {
+      const mode = statSync(hookPath).mode;
+      expect(mode & 0o100).toBe(0o100);
+    }
   });
 
   it("is idempotent — a second install is a no-op", () => {

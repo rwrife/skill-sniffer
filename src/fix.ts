@@ -116,11 +116,13 @@ export function fixContent(raw: string): FixContentResult {
 
   // 4. Collapse redundant blank lines + normalize the trailing newline.
   const collapsed = collapseBlankLines(text);
-  if (collapsed.count > 0) {
+  if (collapsed.text !== text) {
     text = collapsed.text;
     changes.push({
       kind: "blank-lines",
-      message: `collapsed ${collapsed.count} redundant blank line${plural(collapsed.count)}`,
+      message: collapsed.count > 0
+        ? `collapsed ${collapsed.count} redundant blank line${plural(collapsed.count)}`
+        : "normalized trailing newline",
       count: collapsed.count,
     });
   }
@@ -219,20 +221,22 @@ function reorderFrontmatter(text: string): { text: string; count: number } {
   // Only act on a leading frontmatter block delimited by `---`.
   if (!/^---\r?\n/.test(text)) return { text, count: 0 };
 
-  let parsed: matter.GrayMatterFile<string>;
   try {
     // Match parse.ts: clear the content cache so reorder is deterministic.
     (matter as unknown as { clearCache?: () => void }).clearCache?.();
-    parsed = matter(text);
+    matter(text);
   } catch {
     // Malformed YAML: never touch it, just report-as-is upstream.
     return { text, count: 0 };
   }
 
-  const block = parsed.matter; // raw text between the --- fences
+  const fenceMatch = /^---(\r?\n)([\s\S]*?)\r?\n---/.exec(text);
+  if (!fenceMatch) return { text, count: 0 };
+  const eol = fenceMatch[1];
+  const block = fenceMatch[2];
   if (!block || block.trim().length === 0) return { text, count: 0 };
 
-  const entries = splitTopLevelEntries(block);
+  const entries = splitTopLevelEntries(block, eol);
   if (entries.length === 0) return { text, count: 0 };
 
   const priority = (key: string): number =>
@@ -255,14 +259,11 @@ function reorderFrontmatter(text: string): { text: string; count: number } {
   }
   if (moved === 0) return { text, count: 0 };
 
-  const newBlock = ordered.map((e) => e.text).join("\n");
+  const newBlock = ordered.map((e) => e.text).join(eol);
 
   // Rebuild the document: ---\n<block>\n---<rest>. We reconstruct the fences
   // from the original prefix so the surrounding newlines are preserved.
-  const fenceMatch = /^---\r?\n([\s\S]*?)\r?\n---/.exec(text);
-  if (!fenceMatch) return { text, count: 0 };
   const after = text.slice(fenceMatch[0].length);
-  const eol = text.includes("\r\n") ? "\r\n" : "\n";
   const rebuilt = `---${eol}${newBlock}${eol}---${after}`;
 
   return { text: rebuilt, count: moved };
@@ -283,8 +284,8 @@ interface FrontmatterEntry {
  * items (`- …`) belong to the preceding key. Lines we can't classify abort the
  * split (return `[]`) so we conservatively leave unusual YAML alone.
  */
-function splitTopLevelEntries(block: string): FrontmatterEntry[] {
-  const lines = block.split("\n");
+function splitTopLevelEntries(block: string, eol: string): FrontmatterEntry[] {
+  const lines = block.split(/\r?\n/);
   const entries: FrontmatterEntry[] = [];
   let current: { key: string; lines: string[] } | null = null;
 
@@ -293,7 +294,7 @@ function splitTopLevelEntries(block: string): FrontmatterEntry[] {
   for (const line of lines) {
     const m = TOP_KEY.exec(line);
     if (m) {
-      if (current) entries.push({ key: current.key, text: current.lines.join("\n") });
+      if (current) entries.push({ key: current.key, text: current.lines.join(eol) });
       current = { key: m[1], lines: [line] };
       continue;
     }
@@ -313,7 +314,7 @@ function splitTopLevelEntries(block: string): FrontmatterEntry[] {
     return [];
   }
 
-  if (current) entries.push({ key: current.key, text: current.lines.join("\n") });
+  if (current) entries.push({ key: current.key, text: current.lines.join(eol) });
   return entries;
 }
 
@@ -322,7 +323,7 @@ function trimTrailingWhitespace(text: string): { text: string; count: number } {
   const lines = text.split("\n");
   let count = 0;
   for (let i = 0; i < lines.length; i++) {
-    const trimmed = lines[i].replace(/[ \t]+$/, "");
+    const trimmed = lines[i].replace(/[ \t]+(?=\r?$)/, "");
     if (trimmed !== lines[i]) {
       lines[i] = trimmed;
       count++;
@@ -340,12 +341,13 @@ function collapseBlankLines(text: string): { text: string; count: number } {
   const before = countLines(text);
 
   // Squeeze runs of blank lines (3+) down to one blank line.
-  let out = text.replace(/\n{3,}/g, "\n\n");
+  let out = text.replace(/(\r?\n)(?:\r?\n){2,}/g, "$1$1");
 
   // Normalize trailing newlines: strip them all, then add exactly one back —
   // but only if the file had any content (don't turn "" into "\n").
-  out = out.replace(/\n+$/, "");
-  if (out.length > 0) out += "\n";
+  const eol = text.includes("\r\n") ? "\r\n" : "\n";
+  out = out.replace(/(?:\r?\n)+$/, "");
+  if (out.length > 0) out += eol;
 
   const removed = before - countLines(out);
   return { text: out, count: Math.max(0, removed) };

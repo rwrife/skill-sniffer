@@ -90,10 +90,13 @@ Core contract: a **Rule** is `{ id, description, defaultSeverity, run(skill, ctx
 
 ## 8. Backlog / future features (v0.2+)
 
+The items below are the original roadmap; all have since been implemented. See
+the README for current usage. No release tag has been created.
+
 1. **`--fix`** — auto-strip zero-width chars, normalize frontmatter ordering, trim trailing bloat.
 2. **Config file** (`.skillsnifferrc`) — enable/disable rules, tune severities, set token budget per project.
 3. **Custom rule plugins** — load user rules from a `skill-sniffer-plugin-*` package.
-4. **GitHub Action** — drop-in `uses: rwrife/skill-sniffer@v1` that comments the score on PRs touching skill files.
+4. **GitHub Action** — comments the score on PRs touching skill files.
 5. **Diff mode** — only lint skills changed vs `main` (`--since`), for fast CI.
 6. **SARIF output** — so findings show in GitHub code-scanning UI.
 7. **Multi-format support** — `AGENTS.md`, `CLAUDE.md`, `.cursorrules`, MCP server manifests.

@@ -129,6 +129,19 @@ describe("fix — whitespace tidying (token-bloat scents)", () => {
     const raw = "---\nname: a\ndescription: b\n---\nbody\n";
     expect(fixContent(raw).changed).toBe(false);
   });
+
+  it("fixes CRLF files without mixing newline styles", () => {
+    const raw = "---\r\nextra: keep\r\ndescription: d\r\nname: n\r\n---\r\nbody  \r\n\r\n\r\n\r\nend\r\n\r\n";
+    const fixed = fixContent(raw);
+    expect(fixed.fixed).toBe("---\r\nname: n\r\ndescription: d\r\nextra: keep\r\n---\r\nbody\r\n\r\nend\r\n");
+    expect(fixContent(fixed.fixed).changed).toBe(false);
+  });
+
+  it("adds a missing trailing newline and reports the change", () => {
+    const result = fixContent("body");
+    expect(result.fixed).toBe("body\n");
+    expect(kinds(result.changes)).toContain("blank-lines");
+  });
 });
 
 describe("fix — safety: never rewrites dangerous intent", () => {
@@ -310,10 +323,10 @@ describe("fix — fixable fixture (end to end)", () => {
       expect(once.changed).toBe(true);
       // name first, description second, extra preserved after.
       expect(once.fixed).toMatch(
-        /^---\nname: fixable-demo\ndescription: .+\nextra: keep-me\n---/,
+        /^---\r?\nname: fixable-demo\r?\ndescription: .+\r?\nextra: keep-me\r?\n---/,
       );
       expect(once.fixed).not.toMatch(/\u200b/);
-      expect(once.fixed).not.toMatch(/[ \t]+\n/);
+      expect(once.fixed).not.toMatch(/[ \t]+\r?\n/);
       expect(fixContent(once.fixed).changed).toBe(false);
     } finally {
       rmSync(dir, { recursive: true, force: true });
