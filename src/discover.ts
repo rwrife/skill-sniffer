@@ -1,3 +1,4 @@
+import { realpathSync } from "node:fs";
 import { stat } from "node:fs/promises";
 import { resolve } from "node:path";
 import fg from "fast-glob";
@@ -149,25 +150,36 @@ export function looksLikeSkillFile(filePath: string): boolean {
  * format filters, and this narrows the result to only the files git reports as
  * changed — so an unchanged or excluded-format file is never linted.
  *
- * Both sides are compared as resolved absolute paths, so callers must resolve
- * git's repo-relative output first. Returns a de-duplicated list in the same
- * order `discovered` was given.
+ * Existing paths are compared by their real paths, so aliases such as Windows
+ * short paths match. Callers must resolve git's repo-relative output first.
+ * Returns a de-duplicated list in the same order `discovered` was given.
  */
 export function intersectChanged(
   discovered: readonly string[],
   changedAbsolute: readonly string[],
 ): string[] {
-  const changedSet = new Set(changedAbsolute.map((p) => resolve(p)));
+  const changedSet = new Set(changedAbsolute.map(pathIdentity));
   const seen = new Set<string>();
   const out: string[] = [];
   for (const p of discovered) {
-    const abs = resolve(p);
+    const abs = pathIdentity(p);
     if (changedSet.has(abs) && !seen.has(abs)) {
       seen.add(abs);
       out.push(p);
     }
   }
   return out;
+}
+
+function pathIdentity(path: string): string {
+  const absolute = resolve(path);
+  try {
+    return realpathSync.native(absolute);
+  } catch (err) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT" || code === "ENOTDIR") return absolute;
+    throw err;
+  }
 }
 
 /** Cheap heuristic for glob metacharacters. */

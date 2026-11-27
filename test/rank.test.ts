@@ -243,9 +243,10 @@ describe("rank command (issue #27)", () => {
         expect(out.code).toBe(0);
         const text = plain(out.stdout);
         // Heaviest file appears before the lighter one.
-        expect(text.indexOf("big/SKILL.md")).toBeLessThan(
-          text.indexOf("small/SKILL.md"),
-        );
+        const big = text.indexOf(join("big", "SKILL.md"));
+        const small = text.indexOf(join("small", "SKILL.md"));
+        expect(big).toBeGreaterThanOrEqual(0);
+        expect(small).toBeGreaterThan(big);
         expect(text).toContain("2 file(s)");
         expect(text).toContain("over budget"); // big is over the 2000 default
       } finally {

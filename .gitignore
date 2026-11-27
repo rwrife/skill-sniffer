@@ -30,3 +30,4 @@ coverage/
 
 # Local config
 .skillsnifferrc.local
+.worktrees/

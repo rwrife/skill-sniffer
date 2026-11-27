@@ -1,6 +1,6 @@
 import { describe, it, expect, afterEach } from "vitest";
-import { mkdtempSync, writeFileSync, rmSync } from "node:fs";
-import { join } from "node:path";
+import { mkdtempSync, writeFileSync, rmSync, realpathSync } from "node:fs";
+import { join, resolve } from "node:path";
 import { tmpdir } from "node:os";
 import {
   normalizeConfig,
@@ -17,7 +17,8 @@ import type { ParsedSkill } from "../src/types.js";
 
 const scratch: string[] = [];
 function tmp(): string {
-  const dir = mkdtempSync(join(tmpdir(), "sniff-plugin-"));
+  // Vitest's module resolver misinterprets encoded Windows short-path tildes.
+  const dir = mkdtempSync(join(realpathSync.native(tmpdir()), "sniff-plugin-"));
   scratch.push(dir);
   return dir;
 }
@@ -81,17 +82,17 @@ describe("plugin specifier resolution", () => {
   });
 
   it("resolves local specifiers against the base dir, leaves bare untouched", () => {
-    expect(resolvePluginSpecifier("./r.js", "/base")).toBe("/base/r.js");
+    expect(resolvePluginSpecifier("./r.js", resolve("base"))).toBe(resolve("base", "r.js"));
     expect(resolvePluginSpecifier("pkg-name", "/base")).toBe("pkg-name");
-    expect(resolvePluginSpecifier("/already/abs.js", "/base")).toBe(
-      "/already/abs.js",
+    expect(resolvePluginSpecifier(resolve("already", "abs.js"), resolve("base"))).toBe(
+      resolve("already", "abs.js"),
     );
   });
 
   it("normalizeConfig resolves plugin paths relative to the config file", () => {
     const raw: RawConfig = { plugins: ["./rules.js", "pkg"] };
-    const cfg = normalizeConfig(raw, "/proj/.skillsnifferrc");
-    expect(cfg.plugins).toEqual(["/proj/rules.js", "pkg"]);
+    const cfg = normalizeConfig(raw, resolve("proj", ".skillsnifferrc"));
+    expect(cfg.plugins).toEqual([resolve("proj", "rules.js"), "pkg"]);
   });
 
   it("warns on non-array plugins and non-string entries", () => {
